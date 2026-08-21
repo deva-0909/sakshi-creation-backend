@@ -50,7 +50,7 @@ exports.createMaterial = async (req, res) => {
 
 exports.getAllMaterials = async (req, res) => {
   try {
-    const { data, error } = await supabase.from("materials").select(SELECT);
+    const { data, error } = await supabase.from("materials").select(SELECT).eq("is_delete", false);
     if (error) throw error;
     res.status(200).json({
       success: true,
@@ -65,7 +65,7 @@ exports.getAllMaterials = async (req, res) => {
 
 exports.getMaterialById = async (req, res) => {
   try {
-    const { data, error } = await supabase.from("materials").select(SELECT).eq("id", req.params.id).maybeSingle();
+    const { data, error } = await supabase.from("materials").select(SELECT).eq("id", req.params.id).eq("is_delete", false).maybeSingle();
     if (error) throw error;
     if (!data) {
       return res.status(404).json({ success: false, message: "Material not found" });
@@ -121,7 +121,7 @@ exports.updateMaterial = async (req, res) => {
 
 exports.deleteMaterial = async (req, res) => {
   try {
-    const { data, error } = await supabase.from("materials").delete().eq("id", req.params.id).select("id").maybeSingle();
+    const { data, error } = await supabase.from("materials").update({ is_delete: true }).eq("id", req.params.id).select("id").maybeSingle();
     if (error) throw error;
     if (!data) {
       return res.status(404).json({ success: false, message: "Material not found" });

@@ -86,7 +86,7 @@ exports.createPerformanceInvoice = async (req, res) => {
 
 exports.getAllPerformanceInvoices = async (req, res) => {
   try {
-    const { data, error } = await supabase.from("performance_invoices").select(SELECT).order("created_at", { ascending: false });
+    const { data, error } = await supabase.from("performance_invoices").select(SELECT).eq("is_delete", false).order("created_at", { ascending: false });
     if (error) throw error;
     res.status(200).json({ success: true, count: data.length, data: data.map((d) => ({ ...d, _id: d.id })) });
   } catch (error) {
@@ -101,7 +101,7 @@ exports.getPerformanceInvoiceById = async (req, res) => {
     if (!isValidId(id)) {
       return res.status(400).json({ success: false, message: "Invalid PerformanceInvoice ID" });
     }
-    const { data: pi, error } = await supabase.from("performance_invoices").select(SELECT).eq("id", id).maybeSingle();
+    const { data: pi, error } = await supabase.from("performance_invoices").select(SELECT).eq("id", id).eq("is_delete", false).maybeSingle();
     if (error) throw error;
     if (!pi) {
       return res.status(404).json({ success: false, message: "Performance invoice not found" });
@@ -224,7 +224,7 @@ exports.deletePerformanceInvoice = async (req, res) => {
     if (!isValidId(id)) {
       return res.status(400).json({ success: false, message: "Invalid PerformanceInvoice ID" });
     }
-    const { data, error } = await supabase.from("performance_invoices").delete().eq("id", id).select("id").maybeSingle();
+    const { data, error } = await supabase.from("performance_invoices").update({ is_delete: true }).eq("id", id).select("id").maybeSingle();
     if (error) throw error;
     if (!data) {
       return res.status(404).json({ success: false, message: "Performance invoice not found" });

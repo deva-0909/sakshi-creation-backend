@@ -9,7 +9,7 @@ const SELECT =
 
 exports.getVendors = async (req, res) => {
   try {
-    const { data, error } = await supabase.from("vendors").select(SELECT).order("created_at", { ascending: false });
+    const { data, error } = await supabase.from("vendors").select(SELECT).eq("is_delete", false).order("created_at", { ascending: false });
     if (error) throw error;
     res.status(200).json({ success: true, count: data.length, data: withMongoId(data) });
   } catch (error) {
@@ -19,7 +19,7 @@ exports.getVendors = async (req, res) => {
 
 exports.getVendorById = async (req, res) => {
   try {
-    const { data, error } = await supabase.from("vendors").select(SELECT).eq("id", req.params.id).maybeSingle();
+    const { data, error } = await supabase.from("vendors").select(SELECT).eq("id", req.params.id).eq("is_delete", false).maybeSingle();
     if (error) throw error;
     if (!data) {
       return res.status(404).json({ success: false, message: "Vendor not found" });
@@ -116,7 +116,7 @@ exports.deleteVendor = async (req, res) => {
   try {
     const { data: before } = await supabase.from("vendors").select(SELECT).eq("id", req.params.id).maybeSingle();
 
-    const { data, error } = await supabase.from("vendors").delete().eq("id", req.params.id).select("id").maybeSingle();
+    const { data, error } = await supabase.from("vendors").update({ is_delete: true }).eq("id", req.params.id).select("id").maybeSingle();
     if (error) throw error;
     if (!data) {
       return res.status(404).json({ success: false, message: "Vendor not found" });

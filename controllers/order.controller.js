@@ -118,7 +118,7 @@ exports.createOrder = async (req, res) => {
 exports.getAllOrders = async (req, res) => {
   try {
     const { page = 1, limit = 10, status, companyName, party } = req.query;
-    let query = supabase.from("orders").select(ORDER_SELECT, { count: "exact" }).order("created_at", { ascending: false });
+    let query = supabase.from("orders").select(ORDER_SELECT, { count: "exact" }).eq("is_delete", false).order("created_at", { ascending: false });
 
     if (status) query = query.eq("status", status);
     if (companyName && isValidId(companyName)) query = query.eq("company_name_id", companyName);
@@ -156,7 +156,7 @@ exports.getOrderById = async (req, res) => {
     if (!isValidId(id)) {
       return res.status(400).json({ success: false, message: "Invalid Order ID" });
     }
-    const { data: order, error } = await supabase.from("orders").select(ORDER_SELECT).eq("id", id).maybeSingle();
+    const { data: order, error } = await supabase.from("orders").select(ORDER_SELECT).eq("id", id).eq("is_delete", false).maybeSingle();
     if (error) throw error;
     if (!order) {
       return res.status(404).json({ success: false, message: "Order not found" });
@@ -306,12 +306,12 @@ exports.deleteOrder = async (req, res) => {
     if (!isValidId(id)) {
       return res.status(400).json({ success: false, message: "Invalid Order ID" });
     }
-    const { data: order, error } = await supabase.from("orders").delete().eq("id", id).select("id").maybeSingle();
+    const { data: order, error } = await supabase.from("orders").update({ is_delete: true }).eq("id", id).select("id").maybeSingle();
     if (error) throw error;
     if (!order) {
       return res.status(404).json({ success: false, message: "Order not found" });
     }
-    const { count } = await supabase.from("orders").select("id", { count: "exact", head: true });
+    const { count } = await supabase.from("orders").select("id", { count: "exact", head: true }).eq("is_delete", false);
     if (count === 0) {
       await supabase.from("sequences").update({ last_sequence: 100 }).eq("type", "global_order");
     }
@@ -333,6 +333,7 @@ exports.getOrdersByCompanyAndParty = async (req, res) => {
       .select(ORDER_SELECT)
       .eq("company_name_id", companyId)
       .eq("party_id", partyId)
+      .eq("is_delete", false)
       .order("created_at", { ascending: false });
     if (error) throw error;
     res.status(200).json({ success: true, data: withMongoId(data), count: data.length });
@@ -345,7 +346,7 @@ exports.getOrdersByCompanyAndParty = async (req, res) => {
 exports.getDesignerById = async (req, res) => {
   try {
     const { id } = req.user;
-    const { data, error } = await supabase.from("orders").select(ORDER_SELECT).eq("designer_id", id).order("created_at", { ascending: false });
+    const { data, error } = await supabase.from("orders").select(ORDER_SELECT).eq("designer_id", id).eq("is_delete", false).order("created_at", { ascending: false });
     if (error) throw error;
     res.status(200).json({ success: true, count: data.length, data: withMongoId(data) });
   } catch (error) {
@@ -357,7 +358,7 @@ exports.getDesignerById = async (req, res) => {
 exports.getPrinterById = async (req, res) => {
   try {
     const { id } = req.user;
-    const { data, error } = await supabase.from("orders").select(ORDER_SELECT).eq("printer_id", id).order("created_at", { ascending: false });
+    const { data, error } = await supabase.from("orders").select(ORDER_SELECT).eq("printer_id", id).eq("is_delete", false).order("created_at", { ascending: false });
     if (error) throw error;
     res.status(200).json({ success: true, count: data.length, data: withMongoId(data) });
   } catch (error) {
@@ -369,7 +370,7 @@ exports.getPrinterById = async (req, res) => {
 exports.getBinderById = async (req, res) => {
   try {
     const { id } = req.user;
-    const { data, error } = await supabase.from("orders").select(ORDER_SELECT).eq("binder_id", id).order("created_at", { ascending: false });
+    const { data, error } = await supabase.from("orders").select(ORDER_SELECT).eq("binder_id", id).eq("is_delete", false).order("created_at", { ascending: false });
     if (error) throw error;
     res.status(200).json({ success: true, count: data.length, data: withMongoId(data) });
   } catch (error) {
@@ -381,7 +382,7 @@ exports.getBinderById = async (req, res) => {
 exports.getBookletBinderById = async (req, res) => {
   try {
     const { id } = req.user;
-    const { data, error } = await supabase.from("orders").select(ORDER_SELECT).eq("booklet_binder_id", id).order("created_at", { ascending: false });
+    const { data, error } = await supabase.from("orders").select(ORDER_SELECT).eq("booklet_binder_id", id).eq("is_delete", false).order("created_at", { ascending: false });
     if (error) throw error;
     res.status(200).json({ success: true, count: data.length, data: withMongoId(data) });
   } catch (error) {
@@ -400,7 +401,7 @@ exports.getOrdersByStaffId = async (req, res) => {
     if (!staff) {
       return res.status(404).json({ success: false, message: "Staff member not found" });
     }
-    const { data, error } = await supabase.from("orders").select(ORDER_SELECT).eq("created_by", id).order("created_at", { ascending: false });
+    const { data, error } = await supabase.from("orders").select(ORDER_SELECT).eq("created_by", id).eq("is_delete", false).order("created_at", { ascending: false });
     if (error) throw error;
     if (!data || data.length === 0) {
       return res.status(200).json({ success: true, message: "No orders found for this staff member", count: 0, data: [] });

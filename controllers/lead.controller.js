@@ -67,7 +67,7 @@ exports.createLead = async (req, res) => {
 exports.getAllLeads = async (req, res) => {
   try {
     const { status, partyName, companyName } = req.query;
-    let query = supabase.from("leads").select(LEAD_SELECT).order("created_at", { ascending: false });
+    let query = supabase.from("leads").select(LEAD_SELECT).eq("is_delete", false).order("created_at", { ascending: false });
     if (status) query = query.eq("status", status);
     if (partyName) query = query.eq("party_name_id", partyName);
     if (companyName) query = query.eq("company_name_id", companyName);
@@ -151,7 +151,7 @@ exports.getLeadById = async (req, res) => {
     if (!isValidId(id)) {
       return res.status(400).json({ success: false, message: "Invalid lead ID format" });
     }
-    const { data: lead, error } = await supabase.from("leads").select(LEAD_SELECT).eq("id", id).maybeSingle();
+    const { data: lead, error } = await supabase.from("leads").select(LEAD_SELECT).eq("id", id).eq("is_delete", false).maybeSingle();
     if (error) throw error;
     if (!lead) {
       return res.status(404).json({ success: false, message: "Lead not found" });
@@ -282,7 +282,7 @@ exports.updateLeadStatus = async (req, res) => {
 
 exports.deleteLead = async (req, res) => {
   try {
-    const { data, error } = await supabase.from("leads").delete().eq("id", req.params.id).select("id").maybeSingle();
+    const { data, error } = await supabase.from("leads").update({ is_delete: true }).eq("id", req.params.id).select("id").maybeSingle();
     if (error) throw error;
     if (!data) {
       return res.status(404).json({ success: false, message: "Lead not found" });
@@ -326,6 +326,7 @@ exports.getLeadsByStaffId = async (req, res) => {
       .from("leads")
       .select(LEAD_SELECT)
       .eq("assigned_to", id)
+      .eq("is_delete", false)
       .order("created_at", { ascending: false });
     if (error) throw error;
 

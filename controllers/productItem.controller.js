@@ -16,6 +16,7 @@ exports.createProductItem = async (req, res) => {
       .from("product_items")
       .select("id")
       .ilike("item_name", itemName)
+      .eq("is_delete", false)
       .maybeSingle();
 
     if (existingItem) {
@@ -42,6 +43,7 @@ exports.getAllProductItems = async (req, res) => {
     const { data, error } = await supabase
       .from("product_items")
       .select(SELECT)
+      .eq("is_delete", false)
       .order("created_at", { ascending: false });
 
     if (error) throw error;
@@ -59,7 +61,7 @@ exports.getProductItemById = async (req, res) => {
       return res.status(400).json({ success: false, message: "Invalid product item ID" });
     }
 
-    const { data, error } = await supabase.from("product_items").select(SELECT).eq("id", id).maybeSingle();
+    const { data, error } = await supabase.from("product_items").select(SELECT).eq("id", id).eq("is_delete", false).maybeSingle();
     if (error) throw error;
     if (!data) {
       return res.status(404).json({ success: false, message: "Product item not found" });
@@ -109,7 +111,7 @@ exports.deleteProductItem = async (req, res) => {
       return res.status(400).json({ success: false, message: "Invalid product item ID" });
     }
 
-    const { data, error } = await supabase.from("product_items").delete().eq("id", id).select(SELECT).maybeSingle();
+    const { data, error } = await supabase.from("product_items").update({ is_delete: true }).eq("id", id).select(SELECT).maybeSingle();
     if (error) throw error;
     if (!data) {
       return res.status(404).json({ success: false, message: "Product item not found" });
@@ -148,6 +150,7 @@ exports.bulkCreateProductItems = async (req, res) => {
         .from("product_items")
         .select("id")
         .ilike("item_name", itemName)
+        .eq("is_delete", false)
         .maybeSingle();
       if (existingItem) {
         return res.status(400).json({

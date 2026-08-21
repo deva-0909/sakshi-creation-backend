@@ -66,7 +66,7 @@ exports.createRoleDepartmentCompany = async (req, res) => {
 
 exports.getAllRoleDepartmentCompanies = async (req, res) => {
   try {
-    const { data, error } = await supabase.from("role_department_companies").select(SELECT);
+    const { data, error } = await supabase.from("role_department_companies").select(SELECT).eq("is_delete", false);
     if (error) throw error;
 
     res.status(200).json({
@@ -90,6 +90,7 @@ exports.getRoleDepartmentCompanyById = async (req, res) => {
       .from("role_department_companies")
       .select(SELECT)
       .eq("id", req.params.id)
+      .eq("is_delete", false)
       .maybeSingle();
 
     if (error) throw error;
@@ -181,7 +182,7 @@ exports.deleteRoleDepartmentCompany = async (req, res) => {
   try {
     const { data, error } = await supabase
       .from("role_department_companies")
-      .delete()
+      .update({ is_delete: true })
       .eq("id", req.params.id)
       .select("id")
       .maybeSingle();

@@ -140,7 +140,7 @@ exports.getAllAccountMasters = async (req, res) => {
   try {
     const { statusApproval } = req.query;
 
-    let query = supabase.from("account_masters").select(AM_SELECT).order("created_at", { ascending: false });
+    let query = supabase.from("account_masters").select(AM_SELECT).eq("is_delete", false).order("created_at", { ascending: false });
     const { data: accountMasters, error } = await query;
     if (error) throw error;
 
@@ -246,7 +246,7 @@ exports.getAccountMasterById = async (req, res) => {
     if (!isValidId(id)) {
       return res.status(400).json({ success: false, message: "Invalid AccountMaster ID" });
     }
-    const { data: am, error } = await supabase.from("account_masters").select(AM_SELECT).eq("id", id).maybeSingle();
+    const { data: am, error } = await supabase.from("account_masters").select(AM_SELECT).eq("id", id).eq("is_delete", false).maybeSingle();
     if (error) throw error;
     if (!am) {
       return res.status(404).json({ success: false, message: "AccountMaster not found" });
@@ -420,7 +420,7 @@ exports.deleteAccountMaster = async (req, res) => {
     if (!am) {
       return res.status(404).json({ success: false, message: "Account master not found" });
     }
-    await supabase.from("account_masters").delete().eq("id", req.params.id);
+    await supabase.from("account_masters").update({ is_delete: true }).eq("id", req.params.id);
     await supabase.from("parties").delete().eq("id", am.party_id);
 
     res.status(200).json({

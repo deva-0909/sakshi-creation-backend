@@ -64,7 +64,7 @@ exports.createAssignTask = async (req, res) => {
 
 exports.getAllAssignTasks = async (req, res) => {
   try {
-    const { data, error } = await supabase.from("assign_tasks").select(TASK_SELECT).order("created_at", { ascending: false });
+    const { data, error } = await supabase.from("assign_tasks").select(TASK_SELECT).eq("is_delete", false).order("created_at", { ascending: false });
     if (error) throw error;
     const tasksWithCreatedBy = await Promise.all(withMongoId(data).map(attachCreatedBy));
     res.status(200).json({ success: true, count: tasksWithCreatedBy.length, data: tasksWithCreatedBy });
@@ -75,7 +75,7 @@ exports.getAllAssignTasks = async (req, res) => {
 
 exports.getAssignTaskById = async (req, res) => {
   try {
-    const { data: task, error } = await supabase.from("assign_tasks").select(TASK_SELECT).eq("id", req.params.id).maybeSingle();
+    const { data: task, error } = await supabase.from("assign_tasks").select(TASK_SELECT).eq("id", req.params.id).eq("is_delete", false).maybeSingle();
     if (error) throw error;
     if (!task) {
       return res.status(404).json({ success: false, message: "Assign task not found" });
@@ -267,7 +267,7 @@ exports.updateAssignTaskStatus = async (req, res) => {
 
 exports.deleteAssignTask = async (req, res) => {
   try {
-    const { data, error } = await supabase.from("assign_tasks").delete().eq("id", req.params.id).select("id").maybeSingle();
+    const { data, error } = await supabase.from("assign_tasks").update({ is_delete: true }).eq("id", req.params.id).select("id").maybeSingle();
     if (error) throw error;
     if (!data) {
       return res.status(404).json({ success: false, message: "Assign task not found" });
@@ -310,6 +310,7 @@ exports.getTasksByStaffId = async (req, res) => {
       .from("assign_tasks")
       .select(TASK_SELECT)
       .eq("assign_to", id)
+      .eq("is_delete", false)
       .order("created_at", { ascending: false });
     if (error) throw error;
 

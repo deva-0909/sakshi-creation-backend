@@ -16,6 +16,7 @@ exports.createCompanyName = async (req, res) => {
       .from("company_names")
       .select("id")
       .eq("company_name", req.body.companyName)
+      .eq("is_delete", false)
       .maybeSingle();
 
     if (existing) {
@@ -56,6 +57,7 @@ exports.getAllCompanyNames = async (req, res) => {
     const { data, error } = await supabase
       .from("company_names")
       .select(SELECT_BASIC)
+      .eq("is_delete", false)
       .order("created_at", { ascending: false });
 
     if (error) throw error;
@@ -75,7 +77,8 @@ exports.getCompanyNames = async (req, res) => {
   try {
     const { data: companies, error } = await supabase
       .from("company_names")
-      .select(SELECT_BASIC);
+      .select(SELECT_BASIC)
+      .eq("is_delete", false);
     if (error) throw error;
 
     const withParties = await Promise.all(
@@ -105,6 +108,7 @@ exports.getCompanyNameById = async (req, res) => {
       .from("company_names")
       .select(SELECT_BASIC)
       .eq("id", req.params.id)
+      .eq("is_delete", false)
       .maybeSingle();
 
     if (error) throw error;
@@ -129,6 +133,7 @@ exports.updateCompanyName = async (req, res) => {
         .from("company_names")
         .select("id")
         .eq("company_name", req.body.companyName)
+        .eq("is_delete", false)
         .neq("id", req.params.id)
         .maybeSingle();
       if (existing) {
@@ -173,7 +178,7 @@ exports.deleteCompanyName = async (req, res) => {
   try {
     const { data, error } = await supabase
       .from("company_names")
-      .delete()
+      .update({ is_delete: true })
       .eq("id", req.params.id)
       .select("id")
       .maybeSingle();

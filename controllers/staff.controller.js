@@ -28,7 +28,7 @@ exports.createStaff = async (req, res) => {
     let email = req.body.email;
     if (email) {
       email = email.toLowerCase();
-      const { data: existingEmail } = await supabase.from("staff").select("id").eq("email", email).maybeSingle();
+      const { data: existingEmail } = await supabase.from("staff").select("id").eq("email", email).eq("is_delete", false).maybeSingle();
       if (existingEmail) {
         return res.status(400).json({ success: false, message: "Email already in use" });
       }
@@ -39,7 +39,7 @@ exports.createStaff = async (req, res) => {
       return res.status(400).json({ success: false, message: "Invalid Aadhar number format. Must be 12 digits." });
     }
 
-    const { data: existingAadhar } = await supabase.from("staff").select("id").eq("aadhar_no", req.body.aadharNo).maybeSingle();
+    const { data: existingAadhar } = await supabase.from("staff").select("id").eq("aadhar_no", req.body.aadharNo).eq("is_delete", false).maybeSingle();
     if (existingAadhar) {
       return res.status(400).json({ success: false, message: "Aadhar number already in use" });
     }
@@ -103,7 +103,7 @@ exports.createStaff = async (req, res) => {
 
 exports.getStaff = async (req, res) => {
   try {
-    const { data, error } = await supabase.from("staff").select(SELECT_NO_PASSWORD);
+    const { data, error } = await supabase.from("staff").select(SELECT_NO_PASSWORD).eq("is_delete", false);
     if (error) throw error;
     // Bulk listing — mask Aadhar here so one call can't enumerate every
     // staff member's full number. getStaffById still returns the full
@@ -117,7 +117,7 @@ exports.getStaff = async (req, res) => {
 
 exports.getStaffById = async (req, res) => {
   try {
-    const { data, error } = await supabase.from("staff").select(SELECT_NO_PASSWORD).eq("id", req.params.id).maybeSingle();
+    const { data, error } = await supabase.from("staff").select(SELECT_NO_PASSWORD).eq("id", req.params.id).eq("is_delete", false).maybeSingle();
     if (error) throw error;
     if (!data) {
       return res.status(404).json({ success: false, message: "Staff not found" });
@@ -135,6 +135,7 @@ exports.updateStaff = async (req, res) => {
         .from("staff")
         .select("id")
         .eq("email", req.body.email)
+        .eq("is_delete", false)
         .neq("id", req.params.id)
         .maybeSingle();
       if (existingStaff) {
@@ -147,6 +148,7 @@ exports.updateStaff = async (req, res) => {
         .from("staff")
         .select("id")
         .eq("aadhar_no", req.body.aadharNo)
+        .eq("is_delete", false)
         .neq("id", req.params.id)
         .maybeSingle();
       if (existingAadhar) {
@@ -256,7 +258,7 @@ exports.deleteStaff = async (req, res) => {
   try {
     const { data: before } = await supabase.from("staff").select(SELECT_NO_PASSWORD).eq("id", req.params.id).maybeSingle();
 
-    const { data, error } = await supabase.from("staff").delete().eq("id", req.params.id).select("id").maybeSingle();
+    const { data, error } = await supabase.from("staff").update({ is_delete: true }).eq("id", req.params.id).select("id").maybeSingle();
     if (error) throw error;
     if (!data) {
       return res.status(404).json({ success: false, message: "Staff not found" });
@@ -284,6 +286,7 @@ exports.loginStaff = async (req, res) => {
         "id, firstName:first_name, lastName:last_name, email, password, status, role:role_id(id, roleName:role_name, isDelete:is_delete, totalUser:total_user, permissions)"
       )
       .eq("email", email.toLowerCase())
+      .eq("is_delete", false)
       .maybeSingle();
 
     if (error) throw error;
@@ -339,7 +342,8 @@ exports.getrol = async (req, res) => {
     const { data: staffMembers, error } = await supabase
       .from("staff")
       .select(SELECT_NO_PASSWORD)
-      .eq("role_id", role.id);
+      .eq("role_id", role.id)
+      .eq("is_delete", false);
     if (error) throw error;
 
     res.status(200).json({
@@ -356,7 +360,7 @@ exports.getrol = async (req, res) => {
 
 async function updateAllRoleUserCounts() {
   try {
-    const { data: allStaff } = await supabase.from("staff").select("role_id");
+    const { data: allStaff } = await supabase.from("staff").select("role_id").eq("is_delete", false);
     const { data: allRoles } = await supabase.from("roles").select("id");
 
     const counts = {};
@@ -456,12 +460,12 @@ exports.bulkCreateStaff = async (req, res) => {
         return res.status(400).json({ success: false, message: `Invalid birthDay in row: ${JSON.stringify(row)}.` });
       }
       if (email) {
-        const { data: existingEmail } = await supabase.from("staff").select("id").eq("email", email).maybeSingle();
+        const { data: existingEmail } = await supabase.from("staff").select("id").eq("email", email).eq("is_delete", false).maybeSingle();
         if (existingEmail) {
           return res.status(400).json({ success: false, message: `Email already exists: ${email}` });
         }
       }
-      const { data: existingAadhar } = await supabase.from("staff").select("id").eq("aadhar_no", normalizedAadhar).maybeSingle();
+      const { data: existingAadhar } = await supabase.from("staff").select("id").eq("aadhar_no", normalizedAadhar).eq("is_delete", false).maybeSingle();
       if (existingAadhar) {
         return res.status(400).json({ success: false, message: `Aadhar number already exists: ${normalizedAadhar}` });
       }
