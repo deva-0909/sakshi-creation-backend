@@ -82,6 +82,7 @@ exports.createVendor = async (req, res) => {
         whatsapp_number: whatsappNumber,
         gst: gst || "",
         address,
+        created_by: req.user?.id || null,
       })
       .select(SELECT)
       .single();
@@ -119,6 +120,7 @@ exports.updateVendor = async (req, res) => {
       ...(gst !== undefined && { gst }),
       ...(address && { address }),
       updated_at: new Date().toISOString(),
+      updated_by: req.user?.id || null,
     };
 
     const { data, error } = await supabase

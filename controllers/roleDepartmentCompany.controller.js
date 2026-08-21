@@ -43,6 +43,7 @@ exports.createRoleDepartmentCompany = async (req, res) => {
       .insert({
         role_department_id: roleDepartment,
         role_department_company_name: roleDepartmentCompanyName,
+        created_by: req.user?.id || null,
       })
       .select(SELECT)
       .single();
@@ -184,6 +185,8 @@ exports.updateRoleDepartmentCompany = async (req, res) => {
       .update({
         role_department_id: roleDepartment,
         role_department_company_name: roleDepartmentCompanyName,
+        updated_at: new Date().toISOString(),
+        updated_by: req.user?.id || null,
       })
       .eq("id", req.params.id)
       .select(SELECT)

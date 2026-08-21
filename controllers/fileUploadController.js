@@ -1,4 +1,4 @@
-const { uploadBuffer, uploadManyFromMulter } = require("../lib/storage");
+const { uploadBuffer, uploadManyFromMulter, sanitizeFolder, isGeneratedFilename } = require("../lib/storage");
 const supabase = require("../lib/supabaseClient");
 
 // Upload single file -> Supabase Storage
@@ -7,7 +7,7 @@ exports.uploadSingleFile = async (req, res) => {
     if (!req.file) {
       return res.status(400).json({ success: false, message: "No file uploaded" });
     }
-    const folderName = req.body.folder || "general";
+    const folderName = sanitizeFolder(req.body.folder);
     const uploaded = await uploadBuffer(req.file.buffer, folderName, req.file.originalname, req.file.mimetype);
 
     res.status(200).json({
@@ -35,7 +35,7 @@ exports.uploadMultipleFiles = async (req, res) => {
     if (!req.files || req.files.length === 0) {
       return res.status(400).json({ success: false, message: "No files uploaded" });
     }
-    const folderName = req.body.folder || "general";
+    const folderName = sanitizeFolder(req.body.folder);
 
     const uploaded = await Promise.all(
       req.files.map(async (file) => {
@@ -67,6 +67,13 @@ exports.uploadMultipleFiles = async (req, res) => {
 exports.deleteFile = async (req, res) => {
   try {
     const { folder, filename } = req.params;
+    // §38: folder/filename come straight from the URL. Reject anything
+    // that isn't exactly the shape this app generates, rather than
+    // silently normalizing it -- a caller shouldn't be able to point
+    // this at an arbitrary object path in the shared bucket.
+    if (sanitizeFolder(folder) !== folder || !isGeneratedFilename(filename)) {
+      return res.status(400).json({ success: false, message: "Invalid folder or filename" });
+    }
     const objectPath = `${folder}/${filename}`;
     const { error } = await supabase.storage.from("uploads").remove([objectPath]);
     if (error) throw error;
@@ -81,6 +88,9 @@ exports.deleteFile = async (req, res) => {
 exports.getFileInfo = async (req, res) => {
   try {
     const { folder, filename } = req.params;
+    if (sanitizeFolder(folder) !== folder || !isGeneratedFilename(filename)) {
+      return res.status(400).json({ success: false, message: "Invalid folder or filename" });
+    }
     const { data, error } = await supabase.storage.from("uploads").list(folder, { search: filename });
     if (error) throw error;
     const file = (data || []).find((f) => f.name === filename);

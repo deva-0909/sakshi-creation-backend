@@ -30,7 +30,7 @@ exports.createRoleDepartment = async (req, res) => {
 
     const { data, error } = await supabase
       .from("role_departments")
-      .insert({ role_department: roleDepartment, company_name_id: CompanyName })
+      .insert({ role_department: roleDepartment, company_name_id: CompanyName, created_by: req.user?.id || null })
       .select(SELECT)
       .single();
 
@@ -160,7 +160,12 @@ exports.updateRoleDepartment = async (req, res) => {
 
     const { data, error } = await supabase
       .from("role_departments")
-      .update({ role_department: roleDepartment, company_name_id: CompanyName })
+      .update({
+        role_department: roleDepartment,
+        company_name_id: CompanyName,
+        updated_at: new Date().toISOString(),
+        updated_by: req.user?.id || null,
+      })
       .eq("id", req.params.id)
       .select(SELECT)
       .maybeSingle();

@@ -70,6 +70,7 @@ exports.createPerformanceInvoice = async (req, res) => {
         days_after_confirmation: daysAfterConfirmation || null,
         payment_terms: paymentTerms || "",
         signature: signature || "",
+        created_by: req.user?.id || null,
       })
       .select("id")
       .single();
@@ -240,6 +241,7 @@ exports.updatePerformanceInvoice = async (req, res) => {
         payment_terms: paymentTerms || existing.payment_terms || "",
         signature: signature || existing.signature || "",
         updated_at: new Date().toISOString(),
+        updated_by: req.user?.id || null,
       })
       .eq("id", id);
     if (error) throw error;

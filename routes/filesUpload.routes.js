@@ -3,6 +3,7 @@ const router = express.Router()
 const upload = require("../middleware/fileUpload")
 const multer = require("multer")
 const { authenticateToken } = require("../middleware/auth")
+const { authorizePermission } = require("../middleware/authorize")
 const {
   uploadSingleFile,
   uploadMultipleFiles,
@@ -23,14 +24,20 @@ router.post("/single", upload.single("file"), uploadSingleFile)
 // Upload multiple files
 router.post("/multiple", upload.array("files", 10), uploadMultipleFiles)
 
-// Delete file
-router.delete("/:folder/:filename", deleteFile)
+// Delete file — no dedicated "uploads" permission key exists, falls back
+// to the generic setup bucket. Previously any authenticated user could
+// delete any file in the shared bucket; now it requires the same
+// delete-level permission destructive setup operations already require.
+router.delete("/:folder/:filename", authorizePermission("setup", "delete"), deleteFile)
 
 // Get file info
 router.get("/info/:folder/:filename", getFileInfo)
 
-// List all uploads (for debugging)
-router.get("/list", listUploads)
+// List all uploads — enumerates every folder/file in the bucket across
+// the whole app. Was open to any authenticated user despite being
+// labeled "for debugging"; now gated the same way as other setup-level
+// read operations without a dedicated permission key.
+router.get("/list", authorizePermission("setup", "view_global"), listUploads)
 
 // Error handling middleware for multer
 router.use((error, req, res, next) => {

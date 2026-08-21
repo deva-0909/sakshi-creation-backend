@@ -30,6 +30,7 @@ exports.createRole = async (req, res) => {
         permissions: permissions || {},
         is_delete: false,
         total_user: 0,
+        created_by: req.user?.id || null,
       })
       .select(SELECT)
       .single();
@@ -112,6 +113,8 @@ exports.updateRoleById = async (req, res) => {
     const updateData = {
       ...(roleName && { role_name: roleName }),
       ...(permissions && { permissions }),
+      updated_at: new Date().toISOString(),
+      updated_by: req.user?.id || null,
     };
 
     const { data: updatedRole, error } = await supabase

@@ -35,6 +35,7 @@ exports.createMaterial = async (req, res) => {
         material_name: req.body.materialName,
         material_size: req.body.materialSize,
         material_gsm: req.body.materialGSM,
+        created_by: req.user?.id || null,
       })
       .select(SELECT)
       .single();
@@ -127,6 +128,7 @@ exports.updateMaterial = async (req, res) => {
       ...(req.body.materialSize && { material_size: req.body.materialSize }),
       ...(req.body.materialGSM && { material_gsm: req.body.materialGSM }),
       updated_at: new Date().toISOString(),
+      updated_by: req.user?.id || null,
     };
 
     const { data, error } = await supabase

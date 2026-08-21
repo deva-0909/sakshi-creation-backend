@@ -366,6 +366,7 @@ exports.updateAccountMaster = async (req, res) => {
         reference: req.body.reference,
         ...(req.body.createdBy && { created_by: req.body.createdBy }),
         updated_at: new Date().toISOString(),
+        updated_by: req.user?.id || null,
       })
       .eq("id", id);
     if (amErr) throw amErr;

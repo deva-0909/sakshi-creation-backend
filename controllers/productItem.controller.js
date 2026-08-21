@@ -25,7 +25,7 @@ exports.createProductItem = async (req, res) => {
 
     const { data, error } = await supabase
       .from("product_items")
-      .insert({ item_name: itemName })
+      .insert({ item_name: itemName, created_by: req.user?.id || null })
       .select(SELECT)
       .single();
 
@@ -115,7 +115,7 @@ exports.updateProductItem = async (req, res) => {
 
     const { data, error } = await supabase
       .from("product_items")
-      .update({ item_name: itemName })
+      .update({ item_name: itemName, updated_at: new Date().toISOString(), updated_by: req.user?.id || null })
       .eq("id", id)
       .select(SELECT)
       .maybeSingle();

@@ -80,6 +80,7 @@ exports.createStaff = async (req, res) => {
         role_id: req.body.role,
         aadhar_files: req.body.aadharFiles,
         address_files: req.body.addressFiles || [],
+        created_by: req.user?.id || null,
       })
       .select("id")
       .single();
@@ -153,7 +154,18 @@ exports.getStaffById = async (req, res) => {
     if (!data) {
       return res.status(404).json({ success: false, message: "Staff not found" });
     }
-    res.status(200).json({ success: true, data: withMongoId(data) });
+
+    // §36: the edit form needs the full Aadhar number, but that's the
+    // only legitimate reason to see it. Anyone with "setup.staff" edit
+    // permission (the same permission that gates the edit form itself)
+    // or viewing their own record gets the real number; everyone else
+    // gets the same masked form used on the staff list.
+    const permissions = req.user?.roleData?.permissions;
+    const canEditStaff = !!(permissions && permissions["setup.staff"] && permissions["setup.staff"].edit === true);
+    const isSelf = req.user?.id && String(req.user.id) === String(data.id);
+    const result = canEditStaff || isSelf ? data : { ...data, aadharNo: maskAadhar(data.aadharNo) };
+
+    res.status(200).json({ success: true, data: withMongoId(result) });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -217,6 +229,7 @@ exports.updateStaff = async (req, res) => {
       ...(req.body.addressFiles && { address_files: req.body.addressFiles }),
       ...(req.body.status !== undefined && { status: req.body.status }),
       updated_at: new Date().toISOString(),
+      updated_by: req.user?.id || null,
     };
 
     if (req.body.password) {

@@ -31,6 +31,7 @@ exports.createCompanyName = async (req, res) => {
       .insert({
         company_name: req.body.companyName,
         avatar: req.body.avatar || null,
+        created_by: req.user?.id || null,
       })
       .select(SELECT_BASIC)
       .single();
@@ -172,6 +173,7 @@ exports.updateCompanyName = async (req, res) => {
       ...(req.body.companyName && { company_name: req.body.companyName }),
       ...(req.body.avatar && { avatar: req.body.avatar }),
       updated_at: new Date().toISOString(),
+      updated_by: req.user?.id || null,
     };
 
     const { data, error } = await supabase

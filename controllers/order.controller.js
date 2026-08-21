@@ -285,6 +285,7 @@ exports.updateOrder = async (req, res) => {
       ...(body.deliveryStaff && { delivery_staff_id: body.deliveryStaff }),
       ...(typeof body.isGst !== "undefined" && { is_gst: body.isGst }),
       updated_at: new Date().toISOString(),
+      updated_by: req.user?.id || null,
     };
 
     const { data: updated, error } = await supabase.from("orders").update(patch).eq("id", id).select(ORDER_SELECT).maybeSingle();

@@ -133,6 +133,7 @@ exports.createPurchase = async (req, res) => {
         company_name_id: companyName,
         for_role_id: role,
         for_company_id: staff,
+        created_by: req.user?.id || null,
       })
       .select("*")
       .single();
@@ -233,6 +234,8 @@ exports.updatePurchase = async (req, res) => {
       ...(companyName && { company_name_id: companyName }),
       ...(role && { for_role_id: role }),
       ...(staff && { for_company_id: staff }),
+      updated_at: new Date().toISOString(),
+      updated_by: req.user?.id || null,
     };
 
     const { data: updatedPurchase, error } = await supabase
