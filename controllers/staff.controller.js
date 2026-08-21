@@ -103,13 +103,44 @@ exports.createStaff = async (req, res) => {
 
 exports.getStaff = async (req, res) => {
   try {
-    const { data, error } = await supabase.from("staff").select(SELECT_NO_PASSWORD).eq("is_delete", false);
+    const { page, limit, search } = req.query;
+    const paginate = page !== undefined || limit !== undefined;
+
+    let query = supabase.from("staff").select(SELECT_NO_PASSWORD, { count: "exact" }).eq("is_delete", false);
+
+    if (search && String(search).trim()) {
+      const s = String(search).trim();
+      query = query.or(`first_name.ilike.%${s}%,last_name.ilike.%${s}%,email.ilike.%${s}%`);
+    }
+
+    let pageNum, limitNum, from;
+    if (paginate) {
+      pageNum = parseInt(page, 10) || 1;
+      limitNum = parseInt(limit, 10) || 10;
+      from = (pageNum - 1) * limitNum;
+      const to = from + limitNum - 1;
+      query = query.range(from, to);
+    }
+
+    const { data, error, count } = await query;
     if (error) throw error;
+
     // Bulk listing — mask Aadhar here so one call can't enumerate every
     // staff member's full number. getStaffById still returns the full
     // number, since that's what the edit form needs.
     const masked = (data || []).map((row) => ({ ...row, aadharNo: maskAadhar(row.aadharNo) }));
-    res.status(200).json({ success: true, data: withMongoId(masked) });
+
+    const response = { success: true, data: withMongoId(masked) };
+    if (paginate) {
+      response.pagination = {
+        currentPage: pageNum,
+        totalPages: Math.ceil(count / limitNum),
+        totalCount: count,
+        hasNext: from + data.length < count,
+        hasPrev: pageNum > 1,
+      };
+    }
+    res.status(200).json(response);
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }

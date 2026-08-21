@@ -64,10 +64,41 @@ exports.createAssignTask = async (req, res) => {
 
 exports.getAllAssignTasks = async (req, res) => {
   try {
-    const { data, error } = await supabase.from("assign_tasks").select(TASK_SELECT).eq("is_delete", false).order("created_at", { ascending: false });
+    // "party_name" is not a local column on assign_tasks (it lives on the
+    // joined parties table via party_name_id) — pagination only, no search.
+    const { page, limit } = req.query;
+    const paginate = page !== undefined || limit !== undefined;
+
+    let query = supabase
+      .from("assign_tasks")
+      .select(TASK_SELECT, { count: "exact" })
+      .eq("is_delete", false)
+      .order("created_at", { ascending: false });
+
+    let pageNum, limitNum, from;
+    if (paginate) {
+      pageNum = parseInt(page, 10) || 1;
+      limitNum = parseInt(limit, 10) || 10;
+      from = (pageNum - 1) * limitNum;
+      const to = from + limitNum - 1;
+      query = query.range(from, to);
+    }
+
+    const { data, error, count } = await query;
     if (error) throw error;
     const tasksWithCreatedBy = await Promise.all(withMongoId(data).map(attachCreatedBy));
-    res.status(200).json({ success: true, count: tasksWithCreatedBy.length, data: tasksWithCreatedBy });
+
+    const response = { success: true, count: tasksWithCreatedBy.length, data: tasksWithCreatedBy };
+    if (paginate) {
+      response.pagination = {
+        currentPage: pageNum,
+        totalPages: Math.ceil(count / limitNum),
+        totalCount: count,
+        hasNext: from + data.length < count,
+        hasPrev: pageNum > 1,
+      };
+    }
+    res.status(200).json(response);
   } catch (error) {
     res.status(500).json({ success: false, message: "Failed to fetch tasks", error: error.message });
   }

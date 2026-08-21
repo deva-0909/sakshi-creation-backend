@@ -50,13 +50,42 @@ exports.createMaterial = async (req, res) => {
 
 exports.getAllMaterials = async (req, res) => {
   try {
-    const { data, error } = await supabase.from("materials").select(SELECT).eq("is_delete", false);
+    const { page, limit, search } = req.query;
+    const paginate = page !== undefined || limit !== undefined;
+
+    let query = supabase.from("materials").select(SELECT, { count: "exact" }).eq("is_delete", false);
+
+    if (search && String(search).trim()) {
+      query = query.ilike("material_name", `%${String(search).trim()}%`);
+    }
+
+    let pageNum, limitNum, from;
+    if (paginate) {
+      pageNum = parseInt(page, 10) || 1;
+      limitNum = parseInt(limit, 10) || 10;
+      from = (pageNum - 1) * limitNum;
+      const to = from + limitNum - 1;
+      query = query.range(from, to);
+    }
+
+    const { data, error, count } = await query;
     if (error) throw error;
-    res.status(200).json({
+
+    const response = {
       success: true,
       message: "Materials retrieved successfully",
       data: data.map((m) => ({ ...m, _id: m.id })),
-    });
+    };
+    if (paginate) {
+      response.pagination = {
+        currentPage: pageNum,
+        totalPages: Math.ceil(count / limitNum),
+        totalCount: count,
+        hasNext: from + data.length < count,
+        hasPrev: pageNum > 1,
+      };
+    }
+    res.status(200).json(response);
   } catch (error) {
     console.error("Error fetching materials:", error);
     res.status(500).json({ success: false, message: "Failed to fetch materials", error: error.message });

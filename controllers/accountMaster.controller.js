@@ -136,6 +136,17 @@ function fallbackAssignment(account) {
   return { assignedTo: account.createdBy, remarks: "NA", status: "Not Started" };
 }
 
+// NOTE (Patch 10 / audit §53-§54): deliberately NOT adding DB-level
+// pagination here. `statusApproval` and the party-null check below are
+// applied in JS *after* the query returns, and enrichWithLatestTask further
+// reshapes rows. If we added `.range()` on the initial query, `count` from
+// Supabase would reflect the pre-filter total while the returned page would
+// reflect the post-filter subset — currentPage/totalPages/hasNext would be
+// wrong, and a page could come back with fewer than `limit` valid rows even
+// though more exist. Doing this safely would require moving statusApproval
+// filtering into the query (feasible, since it's a party-table column) and
+// re-deriving totalCount only after enrichment, which is more than a
+// mechanical port of the getAllOrders pattern. Left unpaginated on purpose.
 exports.getAllAccountMasters = async (req, res) => {
   try {
     const { statusApproval } = req.query;

@@ -54,15 +54,42 @@ exports.createCompanyName = async (req, res) => {
 
 exports.getAllCompanyNames = async (req, res) => {
   try {
-    const { data, error } = await supabase
+    const { page, limit, search } = req.query;
+    const paginate = page !== undefined || limit !== undefined;
+
+    let query = supabase
       .from("company_names")
-      .select(SELECT_BASIC)
+      .select(SELECT_BASIC, { count: "exact" })
       .eq("is_delete", false)
       .order("created_at", { ascending: false });
 
+    if (search && String(search).trim()) {
+      query = query.ilike("company_name", `%${String(search).trim()}%`);
+    }
+
+    let pageNum, limitNum, from;
+    if (paginate) {
+      pageNum = parseInt(page, 10) || 1;
+      limitNum = parseInt(limit, 10) || 10;
+      from = (pageNum - 1) * limitNum;
+      const to = from + limitNum - 1;
+      query = query.range(from, to);
+    }
+
+    const { data, error, count } = await query;
     if (error) throw error;
 
-    res.status(200).json({ success: true, data: withMongoId(data) });
+    const response = { success: true, data: withMongoId(data) };
+    if (paginate) {
+      response.pagination = {
+        currentPage: pageNum,
+        totalPages: Math.ceil(count / limitNum),
+        totalCount: count,
+        hasNext: from + data.length < count,
+        hasPrev: pageNum > 1,
+      };
+    }
+    res.status(200).json(response);
   } catch (error) {
     console.error("Error fetching company names:", error);
     res.status(500).json({

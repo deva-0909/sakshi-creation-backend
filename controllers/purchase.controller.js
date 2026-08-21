@@ -153,9 +153,40 @@ exports.createPurchase = async (req, res) => {
 
 exports.getAllPurchases = async (req, res) => {
   try {
-    const { data, error } = await supabase.from("purchases").select(SELECT).eq("is_delete", false).order("created_at", { ascending: false });
+    const { page, limit } = req.query;
+    const paginate = page !== undefined || limit !== undefined;
+
+    // No single obvious text column to search across (vendor/material are
+    // FK-joined, not local columns) — pagination only, no search param.
+    let query = supabase
+      .from("purchases")
+      .select(SELECT, { count: "exact" })
+      .eq("is_delete", false)
+      .order("created_at", { ascending: false });
+
+    let pageNum, limitNum, from;
+    if (paginate) {
+      pageNum = parseInt(page, 10) || 1;
+      limitNum = parseInt(limit, 10) || 10;
+      from = (pageNum - 1) * limitNum;
+      const to = from + limitNum - 1;
+      query = query.range(from, to);
+    }
+
+    const { data, error, count } = await query;
     if (error) throw error;
-    res.status(200).json({ success: true, count: data.length, data: withMongoId(data) });
+
+    const response = { success: true, count: data.length, data: withMongoId(data) };
+    if (paginate) {
+      response.pagination = {
+        currentPage: pageNum,
+        totalPages: Math.ceil(count / limitNum),
+        totalCount: count,
+        hasNext: from + data.length < count,
+        hasPrev: pageNum > 1,
+      };
+    }
+    res.status(200).json(response);
   } catch (error) {
     res.status(500).json({ success: false, message: "Error fetching purchases: " + error.message });
   }

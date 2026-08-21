@@ -40,14 +40,42 @@ exports.createProductItem = async (req, res) => {
 
 exports.getAllProductItems = async (req, res) => {
   try {
-    const { data, error } = await supabase
+    const { page, limit, search } = req.query;
+    const paginate = page !== undefined || limit !== undefined;
+
+    let query = supabase
       .from("product_items")
-      .select(SELECT)
+      .select(SELECT, { count: "exact" })
       .eq("is_delete", false)
       .order("created_at", { ascending: false });
 
+    if (search && String(search).trim()) {
+      query = query.ilike("item_name", `%${String(search).trim()}%`);
+    }
+
+    let pageNum, limitNum, from;
+    if (paginate) {
+      pageNum = parseInt(page, 10) || 1;
+      limitNum = parseInt(limit, 10) || 10;
+      from = (pageNum - 1) * limitNum;
+      const to = from + limitNum - 1;
+      query = query.range(from, to);
+    }
+
+    const { data, error, count } = await query;
     if (error) throw error;
-    res.status(200).json({ success: true, data: withMongoId(data) });
+
+    const response = { success: true, data: withMongoId(data) };
+    if (paginate) {
+      response.pagination = {
+        currentPage: pageNum,
+        totalPages: Math.ceil(count / limitNum),
+        totalCount: count,
+        hasNext: from + data.length < count,
+        hasPrev: pageNum > 1,
+      };
+    }
+    res.status(200).json(response);
   } catch (error) {
     console.error("Error fetching product items:", error);
     res.status(500).json({ success: false, message: "Failed to fetch product items", error: error.message });

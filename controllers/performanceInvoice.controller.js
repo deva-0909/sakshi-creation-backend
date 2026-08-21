@@ -86,9 +86,44 @@ exports.createPerformanceInvoice = async (req, res) => {
 
 exports.getAllPerformanceInvoices = async (req, res) => {
   try {
-    const { data, error } = await supabase.from("performance_invoices").select(SELECT).eq("is_delete", false).order("created_at", { ascending: false });
+    // party_name lives on the joined parties table (party_id), not a local
+    // column, so search is scoped to the local order_number column.
+    const { page, limit, search } = req.query;
+    const paginate = page !== undefined || limit !== undefined;
+
+    let query = supabase
+      .from("performance_invoices")
+      .select(SELECT, { count: "exact" })
+      .eq("is_delete", false)
+      .order("created_at", { ascending: false });
+
+    if (search && String(search).trim()) {
+      query = query.ilike("order_number", `%${String(search).trim()}%`);
+    }
+
+    let pageNum, limitNum, from;
+    if (paginate) {
+      pageNum = parseInt(page, 10) || 1;
+      limitNum = parseInt(limit, 10) || 10;
+      from = (pageNum - 1) * limitNum;
+      const to = from + limitNum - 1;
+      query = query.range(from, to);
+    }
+
+    const { data, error, count } = await query;
     if (error) throw error;
-    res.status(200).json({ success: true, count: data.length, data: data.map((d) => ({ ...d, _id: d.id })) });
+
+    const response = { success: true, count: data.length, data: data.map((d) => ({ ...d, _id: d.id })) };
+    if (paginate) {
+      response.pagination = {
+        currentPage: pageNum,
+        totalPages: Math.ceil(count / limitNum),
+        totalCount: count,
+        hasNext: from + data.length < count,
+        hasPrev: pageNum > 1,
+      };
+    }
+    res.status(200).json(response);
   } catch (error) {
     console.error("Error getting performance invoices:", error);
     res.status(500).json({ success: false, message: "Failed to fetch performance invoices", error: error.message });

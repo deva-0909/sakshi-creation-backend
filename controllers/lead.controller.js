@@ -66,15 +66,34 @@ exports.createLead = async (req, res) => {
 
 exports.getAllLeads = async (req, res) => {
   try {
-    const { status, partyName, companyName } = req.query;
-    let query = supabase.from("leads").select(LEAD_SELECT).eq("is_delete", false).order("created_at", { ascending: false });
+    // "party_name" is not a local column on leads (it lives on the joined
+    // parties table via party_name_id), so there's no cheap ilike search
+    // to add here without an inner-join filter — pagination only.
+    const { status, partyName, companyName, page, limit } = req.query;
+    const paginate = page !== undefined || limit !== undefined;
+
+    let query = supabase.from("leads").select(LEAD_SELECT, { count: "exact" }).eq("is_delete", false).order("created_at", { ascending: false });
     if (status) query = query.eq("status", status);
     if (partyName) query = query.eq("party_name_id", partyName);
     if (companyName) query = query.eq("company_name_id", companyName);
 
-    const { data, error } = await query;
+    let pageNum, limitNum, from;
+    if (paginate) {
+      pageNum = parseInt(page, 10) || 1;
+      limitNum = parseInt(limit, 10) || 10;
+      from = (pageNum - 1) * limitNum;
+      const to = from + limitNum - 1;
+      query = query.range(from, to);
+    }
+
+    const { data, error, count } = await query;
     if (error) throw error;
 
+    // Note: this filter drops rows whose join failed to resolve (e.g. a
+    // hard-deleted party/company), which is rare given FK constraints.
+    // With pagination active this could in principle make a page report
+    // fewer than `limit` items even when count says more remain; that's
+    // an accepted edge case rather than a reason to skip pagination here.
     const validLeads = withMongoId(data).filter((l) => l.partyName && l.companyName);
     if (validLeads.length === 0) {
       return res.status(200).json({ success: true, count: 0, data: [], message: "No leads found" });
@@ -82,7 +101,17 @@ exports.getAllLeads = async (req, res) => {
 
     const populatedLeads = await Promise.all(validLeads.map(attachCreatedBy));
 
-    res.status(200).json({ success: true, count: populatedLeads.length, data: populatedLeads });
+    const response = { success: true, count: populatedLeads.length, data: populatedLeads };
+    if (paginate) {
+      response.pagination = {
+        currentPage: pageNum,
+        totalPages: Math.ceil(count / limitNum),
+        totalCount: count,
+        hasNext: from + data.length < count,
+        hasPrev: pageNum > 1,
+      };
+    }
+    res.status(200).json(response);
   } catch (error) {
     console.error("Error fetching leads:", error);
     res.status(500).json({ success: false, message: "Server error while fetching leads", error: error.message });

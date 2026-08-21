@@ -66,14 +66,45 @@ exports.createRoleDepartmentCompany = async (req, res) => {
 
 exports.getAllRoleDepartmentCompanies = async (req, res) => {
   try {
-    const { data, error } = await supabase.from("role_department_companies").select(SELECT).eq("is_delete", false);
+    // Lookup-style table but has a direct text column, so search is
+    // supported; page/limit/search are all optional so existing
+    // dropdown-style callers are unaffected.
+    const { page, limit, search } = req.query;
+    const paginate = page !== undefined || limit !== undefined;
+
+    let query = supabase.from("role_department_companies").select(SELECT, { count: "exact" }).eq("is_delete", false);
+
+    if (search && String(search).trim()) {
+      query = query.ilike("role_department_company_name", `%${String(search).trim()}%`);
+    }
+
+    let pageNum, limitNum, from;
+    if (paginate) {
+      pageNum = parseInt(page, 10) || 1;
+      limitNum = parseInt(limit, 10) || 10;
+      from = (pageNum - 1) * limitNum;
+      const to = from + limitNum - 1;
+      query = query.range(from, to);
+    }
+
+    const { data, error, count } = await query;
     if (error) throw error;
 
-    res.status(200).json({
+    const response = {
       success: true,
       message: "Role department companies retrieved successfully",
       data: withMongoId(data),
-    });
+    };
+    if (paginate) {
+      response.pagination = {
+        currentPage: pageNum,
+        totalPages: Math.ceil(count / limitNum),
+        totalCount: count,
+        hasNext: from + data.length < count,
+        hasPrev: pageNum > 1,
+      };
+    }
+    res.status(200).json(response);
   } catch (error) {
     console.error("Error fetching role department companies:", error);
     res.status(500).json({
