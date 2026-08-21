@@ -15,10 +15,12 @@ const {
   updateStaffStatus
 } = require("../controllers/order.controller");
 const { authenticateToken } = require("../middleware/auth");
+const { validate } = require("../middleware/validate");
+const { createOrderSchema, updateOrderSchema } = require("../validators/order.validator");
 
 router.use(authenticateToken);
 
-router.post("/create", createOrder);
+router.post("/create", validate(createOrderSchema), createOrder);
 
 router.get("/all", getAllOrders);
 router.get("/getbystaffid/:id", getOrdersByStaffId);
@@ -35,7 +37,7 @@ router.get("/designe", getDesignerById);
 
 router.get("/:id", getOrderById);
 
-router.put("/update/:id", updateOrder);
+router.put("/update/:id", validate(updateOrderSchema), updateOrder);
 
 router.delete("/delete/:id", deleteOrder);
 

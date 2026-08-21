@@ -37,15 +37,15 @@ async function generateOrderNumber(companyId) {
     initials = words[0].substring(0, 2).toUpperCase();
   }
 
-  const { data: sequence } = await supabase.from("sequences").select("*").eq("type", "global_order").maybeSingle();
-  let lastSequence = sequence ? sequence.last_sequence : 100;
-  lastSequence += 1;
-
-  if (sequence) {
-    await supabase.from("sequences").update({ last_sequence: lastSequence }).eq("id", sequence.id);
-  } else {
-    await supabase.from("sequences").insert({ type: "global_order", last_sequence: lastSequence });
-  }
+  // Atomic increment via a Postgres function (see migration
+  // "atomic_sequence_increment") — avoids a race condition where two
+  // concurrent order creations read the same last_sequence and both write
+  // the same next value, producing duplicate order numbers.
+  const { data: lastSequence, error: seqError } = await supabase.rpc("increment_sequence", {
+    seq_type: "global_order",
+    start_value: 100,
+  });
+  if (seqError) throw seqError;
 
   return `${initials}-${lastSequence}`;
 }

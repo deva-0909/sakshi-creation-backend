@@ -1,6 +1,8 @@
 const express = require("express");
 const StaffController = require("../controllers/staff.controller");
 const { authenticateToken } = require("../middleware/auth");
+const { validate } = require("../middleware/validate");
+const { createStaffSchema, updateStaffSchema } = require("../validators/staff.validator");
 const multer = require("multer");
 
 const router = express.Router();
@@ -12,13 +14,13 @@ const upload = multer({
 router.post("/login", StaffController.loginStaff);
 
 // Everything else requires a valid session.
-router.post("/create", authenticateToken, StaffController.createStaff);
+router.post("/create", authenticateToken, validate(createStaffSchema), StaffController.createStaff);
 
 router.get("/getall", authenticateToken, StaffController.getStaff);
 
 router.get("/getbyid/:id", authenticateToken, StaffController.getStaffById);
 
-router.patch("/update/:id", authenticateToken, StaffController.updateStaff);
+router.patch("/update/:id", authenticateToken, validate(updateStaffSchema), StaffController.updateStaff);
 
 router.patch("/updatestatus/:id", authenticateToken, StaffController.updateStaffStatus);
 

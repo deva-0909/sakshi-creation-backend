@@ -3,17 +3,19 @@ const PurchaseController = require('../controllers/purchase.controller');
 const multer = require("multer");
 
 const { authenticateToken } = require("../middleware/auth");
+const { validate } = require("../middleware/validate");
+const { createPurchaseSchema, updatePurchaseSchema } = require("../validators/purchase.validator");
 const router = express.Router();
 
 router.use(authenticateToken);
 const upload = multer({ storage: multer.memoryStorage() });
-router.post("/create", PurchaseController.createPurchase);
+router.post("/create", validate(createPurchaseSchema), PurchaseController.createPurchase);
 
 router.get("/getall", PurchaseController.getAllPurchases);
 
 router.get("/getbyid/:id", PurchaseController.getPurchaseById);
 
-router.patch("/update/:id", PurchaseController.updatePurchase);
+router.patch("/update/:id", validate(updatePurchaseSchema), PurchaseController.updatePurchase);
 
 router.delete("/delete/:id", PurchaseController.deletePurchase);
 
