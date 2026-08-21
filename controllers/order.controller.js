@@ -28,27 +28,15 @@ const ORDER_SELECT = `
   deliveryStaff:delivery_staff_id(id, firstName:first_name, lastName:last_name)
 `;
 
-async function generateOrderNumber(companyId) {
-  const { data: company } = await supabase.from("company_names").select("company_name").eq("id", companyId).single();
-  const words = company.company_name.trim().split(/\s+/);
-  let initials;
+// Pure string logic only — the actual sequence increment now happens
+// inside create_order_transactional (see migration
+// "create_order_transactional"), atomically with the order insert.
+function deriveInitials(companyName) {
+  const words = (companyName || "").trim().split(/\s+/);
   if (words.length >= 2) {
-    initials = (words[0][0] + words[1][0]).toUpperCase();
-  } else {
-    initials = words[0].substring(0, 2).toUpperCase();
+    return (words[0][0] + words[1][0]).toUpperCase();
   }
-
-  // Atomic increment via a Postgres function (see migration
-  // "atomic_sequence_increment") — avoids a race condition where two
-  // concurrent order creations read the same last_sequence and both write
-  // the same next value, producing duplicate order numbers.
-  const { data: lastSequence, error: seqError } = await supabase.rpc("increment_sequence", {
-    seq_type: "global_order",
-    start_value: 100,
-  });
-  if (seqError) throw seqError;
-
-  return `${initials}-${lastSequence}`;
+  return (words[0] || "").substring(0, 2).toUpperCase();
 }
 
 function processFileList(input) {
@@ -86,41 +74,39 @@ exports.createOrder = async (req, res) => {
       return res.status(400).json({ success: false, message: "Lamination type must be either 'Matte' or 'Gloss' when lamination is selected" });
     }
 
-    const { data: company } = await supabase.from("company_names").select("id").eq("id", companyName).maybeSingle();
+    const { data: company } = await supabase.from("company_names").select("id, company_name").eq("id", companyName).maybeSingle();
     if (!company) {
       return res.status(404).json({ success: false, message: "Company not found" });
     }
 
-    const orderNumber = await generateOrderNumber(companyName);
+    const initials = deriveInitials(company.company_name);
 
-    const { data: order, error } = await supabase
-      .from("orders")
-      .insert({
-        company_name_id: companyName,
-        party_id: party,
-        product_item_id: productItem,
-        qty: parseInt(qty, 10),
-        remarks: remarks || "",
-        file_paths: processFileList(filePaths),
-        created_by: createdBy || req.user?.id,
-        order_number: orderNumber,
-        is_gst: isGst !== false,
-        size: size || "",
-        rate: rate !== undefined ? parseFloat(rate) : null,
-        rate_type: rateType || null,
-        is_lamination: isLamination !== undefined ? isLamination : false,
-        lamination_type: isLamination ? laminationType || "" : "",
-      })
-      .select("id, party_id")
-      .single();
+    // The sequence increment, the order insert, and the party
+    // New->Customer promotion all happen inside one Postgres function
+    // (see migration "create_order_transactional") — if any step fails,
+    // Postgres rolls back all of them together. Previously these were 3
+    // separate, unguarded calls: a failure partway (e.g. the party
+    // update) could leave an order that exists but whose party was never
+    // promoted, with no way to tell from the API response alone.
+    const { data: orderId, error } = await supabase.rpc("create_order_transactional", {
+      p_company_name_id: companyName,
+      p_party_id: party,
+      p_product_item_id: productItem,
+      p_qty: parseInt(qty, 10),
+      p_remarks: remarks || "",
+      p_file_paths: processFileList(filePaths),
+      p_created_by: createdBy || req.user?.id || null,
+      p_initials: initials,
+      p_size: size || "",
+      p_rate: rate !== undefined ? parseFloat(rate) : null,
+      p_rate_type: rateType || null,
+      p_is_lamination: isLamination !== undefined ? isLamination : false,
+      p_lamination_type: isLamination ? laminationType || "" : "",
+      p_is_gst: isGst !== false,
+    });
     if (error) throw error;
 
-    const { data: partyDoc } = await supabase.from("parties").select("id, party_tag").eq("id", order.party_id).maybeSingle();
-    if (partyDoc && partyDoc.party_tag === "New") {
-      await supabase.from("parties").update({ party_tag: "Customer" }).eq("id", partyDoc.id);
-    }
-
-    const { data: populatedOrder } = await supabase.from("orders").select(ORDER_SELECT).eq("id", order.id).single();
+    const { data: populatedOrder } = await supabase.from("orders").select(ORDER_SELECT).eq("id", orderId).single();
 
     res.status(201).json({ success: true, message: "Order created successfully", data: withMongoId(populatedOrder) });
   } catch (error) {
