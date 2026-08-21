@@ -3,12 +3,14 @@ const LeadController = require("../controllers/lead.controller");
 
 const { authenticateToken } = require("../middleware/auth");
 const { authorizePermission } = require("../middleware/authorize");
+const { validate } = require("../middleware/validate");
+const { createLeadSchema, updateLeadSchema } = require("../validators/lead.validator");
 const router = express.Router();
 
 router.use(authenticateToken);
 
 // Create a new lead
-router.post("/create", LeadController.createLead);
+router.post("/create", validate(createLeadSchema), LeadController.createLead);
 
 // Get all leads
 router.get("/getall", LeadController.getAllLeads);
@@ -18,7 +20,7 @@ router.get("/getbyid/:id", LeadController.getLeadById);
 router.get("/getbystaffid/:id", LeadController.getLeadsByStaffId);
 router.post("/create/bulk", authorizePermission("party_call", "create"), LeadController.bulkCreateLeads);
 // Update lead
-router.patch("/update/:id", LeadController.updateLeadById);
+router.patch("/update/:id", validate(updateLeadSchema), LeadController.updateLeadById);
 
 // Update lead status
 router.patch("/updatestatus/:id", authorizePermission("party_call", "edit"), LeadController.updateLeadStatus);

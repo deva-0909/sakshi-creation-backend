@@ -37,7 +37,9 @@ app.use(
       if (allowedOrigins.indexOf(origin) === -1) {
         const msg =
           "The CORS policy for this site does not allow access from the specified Origin.";
-        return callback(new Error(msg), false);
+        const corsError = new Error(msg);
+        corsError.status = 403;
+        return callback(corsError, false);
       }
       return callback(null, true);
     },
@@ -75,13 +77,26 @@ app.use(function(req, res, next) {
   next(createError(404));
 });
 
-// error handler
-app.use(function(err, req, res, next) {
-  // set locals, only providing error in development
-  res.locals.message = err.message;
-  res.locals.error = req.app.get("env") === "development" ? err : {};
-  res.status(err.status || 500);
-  res.render("error");
+// Global error handler. This is an API-only app (every route returns
+// JSON), but the previous handler called res.render("error") — an HTML
+// EJS view — for every unhandled error and every 404, which broke
+// frontend error parsing (axios/fetch expecting `{ success, message }`
+// got an HTML page instead). This returns a consistent JSON envelope
+// instead, matching the shape controllers already use elsewhere.
+// eslint-disable-next-line no-unused-vars
+app.use(function (err, req, res, next) {
+  const status = err.status || err.statusCode || 500;
+  const isDev = req.app.get("env") === "development";
+
+  if (status >= 500) {
+    console.error(err);
+  }
+
+  res.status(status).json({
+    success: false,
+    message: err.message || "Internal server error",
+    ...(isDev && err.stack ? { stack: err.stack } : {}),
+  });
 });
 
 module.exports = app;

@@ -4,12 +4,14 @@ const multer = require("multer");
 const upload = multer({ storage: multer.memoryStorage() });
 const { authenticateToken } = require("../middleware/auth");
 const { authorizePermission } = require("../middleware/authorize");
+const { validate } = require("../middleware/validate");
+const { createAccountMasterSchema, updateAccountMasterSchema } = require("../validators/accountMaster.validator");
 const router = express.Router();
 
 router.use(authenticateToken);
 
 // Create a new account master
-router.post("/create", AccountMasterController.createAccountMaster);
+router.post("/create", validate(createAccountMasterSchema), AccountMasterController.createAccountMaster);
 
 // Get all account masters
 router.get("/getall", AccountMasterController.getAllAccountMasters);
@@ -21,7 +23,7 @@ router.get("/getbyid/:id", AccountMasterController.getAccountMasterById);
 router.get("/getbystaffid/:id", AccountMasterController.getAccountMasterByStaffId);
 
 // Update an account master by ID
-router.patch("/update/:id", AccountMasterController.updateAccountMaster);
+router.patch("/update/:id", validate(updateAccountMasterSchema), AccountMasterController.updateAccountMaster);
 
 // Update account master status
 router.patch("/updatestatus/:id", authorizePermission("account_master", "edit"), AccountMasterController.updateAccountMasterStatus);

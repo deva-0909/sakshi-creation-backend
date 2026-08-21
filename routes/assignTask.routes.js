@@ -3,12 +3,14 @@ const AssignTaskController = require("../controllers/assignTask.controller");
 
 const { authenticateToken } = require("../middleware/auth");
 const { authorizePermission } = require("../middleware/authorize");
+const { validate } = require("../middleware/validate");
+const { createAssignTaskSchema, updateAssignTaskSchema } = require("../validators/assignTask.validator");
 const router = express.Router();
 
 router.use(authenticateToken);
 
 // Create a new assign task
-router.post("/create", AssignTaskController.createAssignTask);
+router.post("/create", validate(createAssignTaskSchema), AssignTaskController.createAssignTask);
 
 // Get all assign tasks
 router.get("/getall", AssignTaskController.getAllAssignTasks);
@@ -18,7 +20,7 @@ router.get("/getbyid/:id", AssignTaskController.getAssignTaskById);
 router.get("/getbystaffid/:id", AssignTaskController.getTasksByStaffId);
 
 // Update an assign task by ID
-router.patch("/update/:id", AssignTaskController.updateAssignTask);
+router.patch("/update/:id", validate(updateAssignTaskSchema), AssignTaskController.updateAssignTask);
 
 // Update assign task status
 router.patch("/updatestatus/:id", authorizePermission("assign_task", "edit"), AssignTaskController.updateAssignTaskStatus);

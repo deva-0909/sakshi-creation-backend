@@ -3,17 +3,19 @@ const RoleDepartmentController = require('../controllers/roleDepartment.controll
 
 const { authenticateToken } = require("../middleware/auth");
 const { authorizePermission } = require("../middleware/authorize");
+const { validate } = require("../middleware/validate");
+const { createRoleDepartmentSchema, updateRoleDepartmentSchema } = require("../validators/roleDepartment.validator");
 const router = express.Router();
 
 router.use(authenticateToken);
 
-router.post("/create", RoleDepartmentController.createRoleDepartment);
+router.post("/create", validate(createRoleDepartmentSchema), RoleDepartmentController.createRoleDepartment);
 
 router.get("/getall", RoleDepartmentController.getAllRoleDepartments);
 
 router.get("/getbyid/:id", RoleDepartmentController.getRoleDepartmentById);
 
-router.patch("/update/:id", RoleDepartmentController.updateRoleDepartment);
+router.patch("/update/:id", validate(updateRoleDepartmentSchema), RoleDepartmentController.updateRoleDepartment);
 
 // No dedicated "role department" key exists in the role-permissions
 // model — this falls under role/setup management, so it checks

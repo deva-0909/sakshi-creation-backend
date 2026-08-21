@@ -3,12 +3,14 @@ const CompanyNameController = require("../controllers/companyName.controller");
 
 const { authenticateToken } = require("../middleware/auth");
 const { authorizePermission } = require("../middleware/authorize");
+const { validate } = require("../middleware/validate");
+const { createCompanyNameSchema, updateCompanyNameSchema } = require("../validators/companyName.validator");
 const router = express.Router();
 
 router.use(authenticateToken);
 
 // Create a new company name
-router.post("/create", CompanyNameController.createCompanyName);
+router.post("/create", validate(createCompanyNameSchema), CompanyNameController.createCompanyName);
 
 // Get all company names
 router.get("/getall", CompanyNameController.getCompanyNames);
@@ -22,7 +24,7 @@ router.get("/get-party-with-company-id/:id", CompanyNameController.getPartywithC
 
 
 // Update a company name by ID
-router.patch("/update/:id", CompanyNameController.updateCompanyName);
+router.patch("/update/:id", validate(updateCompanyNameSchema), CompanyNameController.updateCompanyName);
 
 // Delete a company name by ID
 router.delete("/delete/:id", authorizePermission("setup.company-name", "delete"), CompanyNameController.deleteCompanyName);
