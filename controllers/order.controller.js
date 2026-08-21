@@ -1,5 +1,6 @@
 const supabase = require("../lib/supabaseClient");
 const { isValidId, withMongoId } = require("../lib/helpers");
+const { logAudit } = require("../lib/audit");
 
 const ORDER_SELECT = `
   id, qty, remarks, filePaths:file_paths, status, orderNumber:order_number, number, size,
@@ -442,10 +443,13 @@ exports.updateStaffStatus = async (req, res) => {
     }
 
     const columnMap = { printer: "printer_status", binder: "binder_status", bookletBinder: "booklet_binder_status" };
+    const column = columnMap[statusType];
+
+    const { data: before } = await supabase.from("orders").select(column).eq("id", orderId).maybeSingle();
 
     const { data: updatedOrder, error } = await supabase
       .from("orders")
-      .update({ [columnMap[statusType]]: status, updated_at: new Date().toISOString() })
+      .update({ [column]: status, updated_at: new Date().toISOString() })
       .eq("id", orderId)
       .select(ORDER_SELECT)
       .maybeSingle();
@@ -453,6 +457,15 @@ exports.updateStaffStatus = async (req, res) => {
     if (!updatedOrder) {
       return res.status(404).json({ success: false, message: "Order not found" });
     }
+
+    logAudit({
+      req,
+      action: "status_change",
+      module: "order",
+      recordId: orderId,
+      oldValue: before ? { [column]: before[column] } : null,
+      newValue: { [column]: status },
+    });
 
     res.status(200).json({ success: true, message: `${statusType} status updated successfully`, data: withMongoId(updatedOrder) });
   } catch (error) {

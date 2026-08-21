@@ -1,5 +1,6 @@
 const supabase = require("../lib/supabaseClient");
 const { isValidId, withMongoId } = require("../lib/helpers");
+const { logAudit } = require("../lib/audit");
 const { Readable } = require("stream");
 const csv = require("csv-parser");
 
@@ -142,6 +143,8 @@ exports.createPurchase = async (req, res) => {
 
     const { data: populated } = await supabase.from("purchases").select(SELECT).eq("id", savedPurchase.id).single();
 
+    logAudit({ req, action: "create", module: "purchase", recordId: savedPurchase.id, newValue: populated });
+
     res.status(201).json({ success: true, data: withMongoId(populated) });
   } catch (error) {
     res.status(500).json({ success: false, message: "Error creating purchase: " + error.message });
@@ -186,6 +189,8 @@ exports.updatePurchase = async (req, res) => {
         return res.status(400).json({ success: false, message: "Bill number must be unique" });
       }
     }
+
+    const { data: before } = await supabase.from("purchases").select(SELECT).eq("id", req.params.id).maybeSingle();
 
     const updateData = {
       ...(vendorName && { vendor_name_id: vendorName }),
@@ -245,6 +250,8 @@ exports.updatePurchase = async (req, res) => {
 
     const { data: populated } = await supabase.from("purchases").select(SELECT).eq("id", updatedPurchase.id).single();
 
+    logAudit({ req, action: "update", module: "purchase", recordId: req.params.id, oldValue: before, newValue: populated });
+
     res.status(200).json({ success: true, data: withMongoId(populated) });
   } catch (error) {
     res.status(500).json({ success: false, message: "Error updating purchase: " + error.message });
@@ -253,12 +260,17 @@ exports.updatePurchase = async (req, res) => {
 
 exports.deletePurchase = async (req, res) => {
   try {
+    const { data: before } = await supabase.from("purchases").select(SELECT).eq("id", req.params.id).maybeSingle();
+
     const { data, error } = await supabase.from("purchases").delete().eq("id", req.params.id).select("id").maybeSingle();
     if (error) throw error;
     if (!data) {
       return res.status(404).json({ success: false, message: "Purchase not found" });
     }
     await supabase.from("inventories").delete().eq("purchase_id", req.params.id);
+
+    logAudit({ req, action: "delete", module: "purchase", recordId: req.params.id, oldValue: before });
+
     res.status(200).json({ success: true, message: "Purchase deleted successfully" });
   } catch (error) {
     res.status(500).json({ success: false, message: "Error deleting purchase: " + error.message });

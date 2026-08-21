@@ -1,6 +1,7 @@
 const supabase = require("../lib/supabaseClient");
 const jwt = require("jsonwebtoken");
 const { isValidId, withMongoId, hashPassword, comparePassword, maskAadhar } = require("../lib/helpers");
+const { logAudit } = require("../lib/audit");
 const { Readable } = require("stream");
 const csv = require("csv-parser");
 
@@ -88,6 +89,10 @@ exports.createStaff = async (req, res) => {
     const { data: populatedStaff } = await supabase.from("staff").select(SELECT_NO_PASSWORD).eq("id", newStaff.id).single();
 
     await updateAllRoleUserCounts();
+
+    // populatedStaff never includes the password (SELECT_NO_PASSWORD), so
+    // it's safe to store as-is.
+    logAudit({ req, action: "create", module: "staff", recordId: newStaff.id, newValue: populatedStaff });
 
     res.status(201).json({ success: true, message: "Staff member created successfully", data: withMongoId(populatedStaff) });
   } catch (error) {
@@ -185,6 +190,8 @@ exports.updateStaff = async (req, res) => {
       updateData.password = await hashPassword(req.body.password);
     }
 
+    const { data: before } = await supabase.from("staff").select(SELECT_NO_PASSWORD).eq("id", req.params.id).maybeSingle();
+
     const { data: updatedStaff, error } = await supabase
       .from("staff")
       .update(updateData)
@@ -200,6 +207,12 @@ exports.updateStaff = async (req, res) => {
     const { data: populated } = await supabase.from("staff").select(SELECT_NO_PASSWORD).eq("id", req.params.id).single();
     await updateAllRoleUserCounts();
 
+    // Neither `before` nor `populated` ever includes the password
+    // (SELECT_NO_PASSWORD), so it's safe to store as-is. A changed
+    // password still shows up as an "update" action, just without the
+    // value itself.
+    logAudit({ req, action: "update", module: "staff", recordId: req.params.id, oldValue: before, newValue: populated });
+
     res.status(200).json({ success: true, message: "Staff member updated successfully", data: withMongoId(populated) });
   } catch (error) {
     console.error("Error updating staff:", error);
@@ -209,6 +222,8 @@ exports.updateStaff = async (req, res) => {
 
 exports.updateStaffStatus = async (req, res) => {
   try {
+    const { data: before } = await supabase.from("staff").select("status").eq("id", req.params.id).maybeSingle();
+
     const { data, error } = await supabase
       .from("staff")
       .update({ status: req.body.status })
@@ -220,6 +235,16 @@ exports.updateStaffStatus = async (req, res) => {
     if (!data) {
       return res.status(404).json({ success: false, message: "Staff not found" });
     }
+
+    logAudit({
+      req,
+      action: "status_change",
+      module: "staff",
+      recordId: req.params.id,
+      oldValue: before,
+      newValue: { status: req.body.status },
+    });
+
     res.status(200).json({ success: true, message: "Staff status updated successfully", data: withMongoId(data) });
   } catch (error) {
     console.error("Error updating staff status:", error);
@@ -229,12 +254,17 @@ exports.updateStaffStatus = async (req, res) => {
 
 exports.deleteStaff = async (req, res) => {
   try {
+    const { data: before } = await supabase.from("staff").select(SELECT_NO_PASSWORD).eq("id", req.params.id).maybeSingle();
+
     const { data, error } = await supabase.from("staff").delete().eq("id", req.params.id).select("id").maybeSingle();
     if (error) throw error;
     if (!data) {
       return res.status(404).json({ success: false, message: "Staff not found" });
     }
     await updateAllRoleUserCounts();
+
+    logAudit({ req, action: "delete", module: "staff", recordId: req.params.id, oldValue: before });
+
     res.status(200).json({ success: true, message: "Staff deleted successfully" });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });

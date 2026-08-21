@@ -1,5 +1,6 @@
 const supabase = require("../lib/supabaseClient");
 const { isValidId, withMongoId } = require("../lib/helpers");
+const { logAudit } = require("../lib/audit");
 const { Readable } = require("stream");
 const csv = require("csv-parser");
 
@@ -57,6 +58,9 @@ exports.createVendor = async (req, res) => {
       .single();
 
     if (error) throw error;
+
+    logAudit({ req, action: "create", module: "vendor", recordId: data.id, newValue: data });
+
     res.status(201).json({ success: true, data: withMongoId(data) });
   } catch (error) {
     res.status(500).json({ success: false, message: "Error creating vendor: " + error.message });
@@ -75,6 +79,8 @@ exports.updateVendor = async (req, res) => {
         return res.status(400).json({ success: false, message: "Invalid company" });
       }
     }
+
+    const { data: before } = await supabase.from("vendors").select(SELECT).eq("id", req.params.id).maybeSingle();
 
     const updateData = {
       ...(companyName && { company_name_id: companyName }),
@@ -97,6 +103,9 @@ exports.updateVendor = async (req, res) => {
     if (!data) {
       return res.status(404).json({ success: false, message: "Vendor not found" });
     }
+
+    logAudit({ req, action: "update", module: "vendor", recordId: req.params.id, oldValue: before, newValue: data });
+
     res.status(200).json({ success: true, data: withMongoId(data) });
   } catch (error) {
     res.status(500).json({ success: false, message: "Error updating vendor: " + error.message });
@@ -105,11 +114,16 @@ exports.updateVendor = async (req, res) => {
 
 exports.deleteVendor = async (req, res) => {
   try {
+    const { data: before } = await supabase.from("vendors").select(SELECT).eq("id", req.params.id).maybeSingle();
+
     const { data, error } = await supabase.from("vendors").delete().eq("id", req.params.id).select("id").maybeSingle();
     if (error) throw error;
     if (!data) {
       return res.status(404).json({ success: false, message: "Vendor not found" });
     }
+
+    logAudit({ req, action: "delete", module: "vendor", recordId: req.params.id, oldValue: before });
+
     res.status(200).json({ success: true, message: "Vendor deleted successfully" });
   } catch (error) {
     res.status(500).json({ success: false, message: "Error deleting vendor: " + error.message });
