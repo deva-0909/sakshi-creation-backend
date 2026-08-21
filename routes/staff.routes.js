@@ -36,6 +36,10 @@ router.post(
   upload.fields([{ name: "file", maxCount: 1 }]),
   StaffController.bulkCreateStaff
 );
+
+// §77: CSV template download for the bulk-import format above.
+router.get("/bulk/template", authenticateToken, StaffController.downloadStaffTemplate);
+
 router.patch(
   "/updatepassword/:id",
   authenticateToken,

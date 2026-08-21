@@ -23,4 +23,7 @@ router.delete("/delete/:id", authorizePermission("setup.products", "delete"), pr
 
 router.post('/bulk', authorizePermission("setup.products", "create"), upload.single('file'), productItemController.bulkCreateProductItems);
 
+// §77: CSV template download for the bulk-import format above.
+router.get('/bulk/template', productItemController.downloadProductItemTemplate);
+
 module.exports = router;

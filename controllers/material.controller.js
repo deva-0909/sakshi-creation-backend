@@ -1,6 +1,10 @@
 const supabase = require("../lib/supabaseClient");
+const { logImport } = require("../lib/importLog");
 const { Readable } = require("stream");
 const csv = require("csv-parser");
+
+// §77: the CSV template a bulk-import file must match.
+const BULK_TEMPLATE_HEADERS = ["materialName", "materialSize", "materialGSM"];
 
 const SELECT =
   "id, materialName:material_name, materialSize:material_size, materialGSM:material_gsm, createdAt:created_at, updatedAt:updated_at";
@@ -164,6 +168,14 @@ exports.deleteMaterial = async (req, res) => {
   }
 };
 
+// §77: downloads a CSV template with just the header row, so an import
+// file matches the columns this endpoint actually expects.
+exports.downloadMaterialTemplate = async (req, res) => {
+  res.setHeader("Content-Type", "text/csv");
+  res.setHeader("Content-Disposition", 'attachment; filename="material-bulk-import-template.csv"');
+  res.status(200).send(BULK_TEMPLATE_HEADERS.join(",") + "\n");
+};
+
 exports.bulkCreateMaterials = async (req, res) => {
   try {
     const file = req.file;
@@ -180,19 +192,24 @@ exports.bulkCreateMaterials = async (req, res) => {
         .on("error", reject);
     });
 
-    const materials = [];
+    // §77: previously any bad row aborted the whole file with nothing
+    // imported. Now every row is validated and (if valid) inserted
+    // independently, so one bad row doesn't block the rest.
+    const saved = [];
     const errors = [];
 
-    for (const row of results) {
+    for (let i = 0; i < results.length; i++) {
+      const row = results[i];
+      const rowNum = i + 2; // header is row 1, first data row is row 2
       const { materialName, materialSize, materialGSM } = row;
       if (!materialName?.trim() || !materialSize?.trim() || !materialGSM?.trim()) {
-        errors.push(`Missing required fields in row: ${JSON.stringify(row)}`);
+        errors.push({ row: rowNum, message: `Missing required fields in row: ${JSON.stringify(row)}` });
         continue;
       }
       const cleanedGSM = materialGSM.replace(/[^0-9.]/g, "");
       const gsmNumber = parseFloat(cleanedGSM);
       if (isNaN(gsmNumber) || gsmNumber <= 0) {
-        errors.push(`Invalid GSM in row: ${JSON.stringify(row)}`);
+        errors.push({ row: rowNum, message: `Invalid GSM in row: ${JSON.stringify(row)}` });
         continue;
       }
 
@@ -205,28 +222,43 @@ exports.bulkCreateMaterials = async (req, res) => {
         .maybeSingle();
 
       if (existingMaterial) {
-        errors.push(`Material already exists: ${materialName}, ${materialSize}, ${gsmNumber} GSM`);
+        errors.push({ row: rowNum, message: `Material already exists: ${materialName}, ${materialSize}, ${gsmNumber} GSM` });
         continue;
       }
 
-      materials.push({
-        material_name: materialName.trim(),
-        material_size: materialSize.trim(),
-        material_gsm: gsmNumber,
-      });
+      const { data: insertedMaterial, error: insertErr } = await supabase
+        .from("materials")
+        .insert({
+          material_name: materialName.trim(),
+          material_size: materialSize.trim(),
+          material_gsm: gsmNumber,
+          created_by: req.user?.id || null,
+        })
+        .select(SELECT)
+        .single();
+
+      if (insertErr) {
+        errors.push({ row: rowNum, message: insertErr.message });
+        continue;
+      }
+      saved.push(insertedMaterial);
     }
 
-    if (errors.length > 0) {
-      return res.status(400).json({ success: false, message: "Some rows contain errors", errors });
-    }
-
-    const { data: saved, error } = await supabase.from("materials").insert(materials).select(SELECT);
-    if (error) throw error;
+    await logImport({
+      req,
+      module: "material",
+      fileName: file.originalname,
+      totalRows: results.length,
+      successCount: saved.length,
+      failedCount: errors.length,
+      errors,
+    });
 
     res.status(200).json({
       success: true,
-      message: "Bulk material upload completed successfully",
+      message: `Bulk material upload finished: ${saved.length} succeeded, ${errors.length} failed`,
       count: saved.length,
+      errors,
       data: saved.map((m) => ({ ...m, _id: m.id })),
     });
   } catch (error) {

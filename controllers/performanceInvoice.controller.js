@@ -39,7 +39,7 @@ exports.createPerformanceInvoice = async (req, res) => {
     if (!company) {
       return res.status(400).json({ success: false, message: "Invalid companyName ID" });
     }
-    const { data: party } = await supabase.from("parties").select("id").eq("id", partyName).maybeSingle();
+    const { data: party } = await supabase.from("parties").select("id").eq("id", partyName).eq("is_delete", false).maybeSingle();
     if (!party) {
       return res.status(400).json({ success: false, message: "Invalid partyName ID" });
     }
@@ -209,7 +209,7 @@ exports.updatePerformanceInvoice = async (req, res) => {
     if (!company) {
       return res.status(400).json({ success: false, message: "Invalid companyName ID" });
     }
-    const { data: party } = await supabase.from("parties").select("id").eq("id", partyName).maybeSingle();
+    const { data: party } = await supabase.from("parties").select("id").eq("id", partyName).eq("is_delete", false).maybeSingle();
     if (!party) {
       return res.status(400).json({ success: false, message: "Invalid partyName ID" });
     }

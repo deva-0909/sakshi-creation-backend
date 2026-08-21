@@ -1,8 +1,15 @@
 const supabase = require("../lib/supabaseClient");
 const { isValidId, withMongoId } = require("../lib/helpers");
 const { logAudit } = require("../lib/audit");
+const { logImport } = require("../lib/importLog");
 const { Readable } = require("stream");
 const csv = require("csv-parser");
+
+// §77: the CSV template a bulk-import file must match. The vendor,
+// company, role, staff and material are supplied once for the whole
+// file (via the form fields alongside the upload), so the per-row CSV
+// only needs the per-purchase columns.
+const BULK_TEMPLATE_HEADERS = ["billNumber", "quantity", "ratePerSheet", "kg"];
 
 const SELECT = `
   id, billNumber:bill_number, quantity, ratePerSheet:rate_per_sheet, kg, createdAt:created_at,
@@ -260,6 +267,7 @@ exports.updatePurchase = async (req, res) => {
       .from("inventories")
       .select("id")
       .eq("purchase_id", req.params.id)
+      .eq("is_delete", false)
       .maybeSingle();
 
     if (existingInventory) {
@@ -301,7 +309,7 @@ exports.deletePurchase = async (req, res) => {
     if (!data) {
       return res.status(404).json({ success: false, message: "Purchase not found" });
     }
-    await supabase.from("inventories").delete().eq("purchase_id", req.params.id);
+    await supabase.from("inventories").update({ is_delete: true }).eq("purchase_id", req.params.id);
 
     logAudit({ req, action: "delete", module: "purchase", recordId: req.params.id, oldValue: before });
 
@@ -357,6 +365,14 @@ exports.getPurchasesByDateRange = async (req, res) => {
   }
 };
 
+// §77: downloads a CSV template with just the header row, so an import
+// file matches the columns this endpoint actually expects.
+exports.downloadPurchaseTemplate = async (req, res) => {
+  res.setHeader("Content-Type", "text/csv");
+  res.setHeader("Content-Disposition", 'attachment; filename="purchase-bulk-import-template.csv"');
+  res.status(200).send(BULK_TEMPLATE_HEADERS.join(",") + "\n");
+};
+
 exports.bulkCreatePurchases = async (req, res) => {
   try {
     const file = req.file;
@@ -408,57 +424,74 @@ exports.bulkCreatePurchases = async (req, res) => {
         .on("error", reject);
     });
 
-    const purchases = [];
-    for (const row of results) {
+    // §77: previously the first bad row aborted the whole file. Now every
+    // row is validated and (if valid) inserted independently, so one bad
+    // row doesn't block the rest.
+    const saved = [];
+    const errors = [];
+
+    for (let i = 0; i < results.length; i++) {
+      const row = results[i];
+      const rowNum = i + 2; // header is row 1, first data row is row 2
       const { billNumber, quantity, ratePerSheet, kg } = row;
       if (!billNumber || !quantity || !ratePerSheet || !kg) {
-        return res.status(400).json({ success: false, message: `Missing required fields in row: ${JSON.stringify(row)}` });
+        errors.push({ row: rowNum, message: `Missing required fields in row: ${JSON.stringify(row)}` });
+        continue;
       }
       const { data: existingPurchase } = await supabase.from("purchases").select("id").eq("bill_number", billNumber).maybeSingle();
       if (existingPurchase) {
-        return res.status(400).json({ success: false, message: `Duplicate bill number: ${billNumber}` });
+        errors.push({ row: rowNum, message: `Duplicate bill number: ${billNumber}` });
+        continue;
       }
-      purchases.push({
-        vendor_name_id: vendorName,
-        bill_number: billNumber,
-        material_id: material.id,
-        quantity: Number(quantity),
-        rate_per_sheet: Number(ratePerSheet),
-        kg: Number(kg),
-        company_name_id: companyName,
-        for_role_id: role,
-        for_company_id: staff,
-      });
+
+      const { data: insertedPurchase, error: insertErr } = await supabase
+        .from("purchases")
+        .insert({
+          vendor_name_id: vendorName,
+          bill_number: billNumber,
+          material_id: material.id,
+          quantity: Number(quantity),
+          rate_per_sheet: Number(ratePerSheet),
+          kg: Number(kg),
+          company_name_id: companyName,
+          for_role_id: role,
+          for_company_id: staff,
+          created_by: req.user?.id || null,
+        })
+        .select("*")
+        .single();
+
+      if (insertErr) {
+        errors.push({ row: rowNum, message: insertErr.message });
+        continue;
+      }
+
+      // Same fire-and-forget behavior as the single-purchase create/update
+      // endpoints: the derived inventory row is best-effort and doesn't
+      // block or roll back the purchase itself.
+      await createInventoryForPurchase(insertedPurchase, roleExists.role_name);
+      saved.push(insertedPurchase);
     }
 
-    const { data: savedPurchases, error } = await supabase.from("purchases").insert(purchases).select("*");
-    if (error) throw error;
+    const { data: populated } = saved.length
+      ? await supabase.from("purchases").select(SELECT).in("id", saved.map((p) => p.id))
+      : { data: [] };
 
-    await supabase.from("inventories").insert(
-      savedPurchases.map((p) => ({
-        category: categoryForRole(roleExists.role_name),
-        type: "inward",
-        material_id: p.material_id,
-        quantity: p.quantity,
-        kg: p.kg,
-        vendor_id: p.vendor_name_id,
-        date: new Date().toISOString().slice(0, 10),
-        purchase_id: p.id,
-        company_name_id: p.company_name_id,
-        for_role_id: p.for_role_id,
-        for_company_id: p.for_company_id,
-      }))
-    );
-
-    const { data: populated } = await supabase
-      .from("purchases")
-      .select(SELECT)
-      .in("id", savedPurchases.map((p) => p.id));
+    await logImport({
+      req,
+      module: "purchase",
+      fileName: file.originalname,
+      totalRows: results.length,
+      successCount: saved.length,
+      failedCount: errors.length,
+      errors,
+    });
 
     res.status(200).json({
       success: true,
-      message: "Bulk purchase upload completed successfully",
-      count: savedPurchases.length,
+      message: `Bulk purchase upload finished: ${saved.length} succeeded, ${errors.length} failed`,
+      count: saved.length,
+      errors,
       data: withMongoId(populated),
     });
   } catch (error) {

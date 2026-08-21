@@ -19,6 +19,10 @@ router.get("/getall", LeadController.getAllLeads);
 router.get("/getbyid/:id", LeadController.getLeadById);
 router.get("/getbystaffid/:id", LeadController.getLeadsByStaffId);
 router.post("/create/bulk", authorizePermission("party_call", "create"), LeadController.bulkCreateLeads);
+
+// §77: CSV template download for the bulk-import field names above.
+router.get("/create/bulk/template", LeadController.downloadLeadTemplate);
+
 // Update lead
 router.patch("/update/:id", validate(updateLeadSchema), LeadController.updateLeadById);
 

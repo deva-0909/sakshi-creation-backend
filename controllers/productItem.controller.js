@@ -1,7 +1,11 @@
 const supabase = require("../lib/supabaseClient");
 const { isValidId, withMongoId } = require("../lib/helpers");
+const { logImport } = require("../lib/importLog");
 const { Readable } = require("stream");
 const csv = require("csv-parser");
+
+// §77: the CSV template a bulk-import file must match.
+const BULK_TEMPLATE_HEADERS = ["itemName"];
 
 const SELECT = "id, itemName:item_name, createdAt:created_at, updatedAt:updated_at";
 
@@ -152,6 +156,14 @@ exports.deleteProductItem = async (req, res) => {
   }
 };
 
+// §77: downloads a CSV template with just the header row, so an import
+// file matches the columns this endpoint actually expects.
+exports.downloadProductItemTemplate = async (req, res) => {
+  res.setHeader("Content-Type", "text/csv");
+  res.setHeader("Content-Disposition", 'attachment; filename="productItem-bulk-import-template.csv"');
+  res.status(200).send(BULK_TEMPLATE_HEADERS.join(",") + "\n");
+};
+
 exports.bulkCreateProductItems = async (req, res) => {
   try {
     const file = req.file;
@@ -168,11 +180,19 @@ exports.bulkCreateProductItems = async (req, res) => {
         .on("error", reject);
     });
 
-    const itemNames = [];
-    for (const row of results) {
+    // §77: previously the first bad row aborted the whole file. Now every
+    // row is validated and (if valid) inserted independently, so one bad
+    // row doesn't block the rest.
+    const saved = [];
+    const errors = [];
+
+    for (let i = 0; i < results.length; i++) {
+      const row = results[i];
+      const rowNum = i + 2; // header is row 1, first data row is row 2
       const { itemName } = row;
       if (!itemName) {
-        return res.status(400).json({ success: false, message: `Missing itemName in row: ${JSON.stringify(row)}` });
+        errors.push({ row: rowNum, message: `Missing itemName in row: ${JSON.stringify(row)}` });
+        continue;
       }
       const { data: existingItem } = await supabase
         .from("product_items")
@@ -181,21 +201,38 @@ exports.bulkCreateProductItems = async (req, res) => {
         .eq("is_delete", false)
         .maybeSingle();
       if (existingItem) {
-        return res.status(400).json({
-          success: false,
-          message: `Item with name "${itemName}" already exists in row: ${JSON.stringify(row)}`,
-        });
+        errors.push({ row: rowNum, message: `Item with name "${itemName}" already exists` });
+        continue;
       }
-      itemNames.push({ item_name: itemName });
+
+      const { data: insertedItem, error: insertErr } = await supabase
+        .from("product_items")
+        .insert({ item_name: itemName, created_by: req.user?.id || null })
+        .select(SELECT)
+        .single();
+
+      if (insertErr) {
+        errors.push({ row: rowNum, message: insertErr.message });
+        continue;
+      }
+      saved.push(insertedItem);
     }
 
-    const { data: saved, error } = await supabase.from("product_items").insert(itemNames).select(SELECT);
-    if (error) throw error;
+    await logImport({
+      req,
+      module: "productItem",
+      fileName: file.originalname,
+      totalRows: results.length,
+      successCount: saved.length,
+      failedCount: errors.length,
+      errors,
+    });
 
     res.status(200).json({
       success: true,
-      message: "Bulk product upload completed successfully",
+      message: `Bulk product item upload finished: ${saved.length} succeeded, ${errors.length} failed`,
       count: saved.length,
+      errors,
       data: withMongoId(saved),
     });
   } catch (error) {

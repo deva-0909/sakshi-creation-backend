@@ -1,5 +1,16 @@
 const supabase = require("../lib/supabaseClient");
 const { isValidId, withMongoId } = require("../lib/helpers");
+const { logImport } = require("../lib/importLog");
+
+// §77: the columns a bulk-import file for this module should carry.
+// NOTE: unlike the other bulk-import endpoints, bulkCreateLeads takes a
+// parsed JSON array in the request body rather than an uploaded CSV file
+// (see routes/lead.routes.js — POST /create/bulk has no multer/csv-parser
+// wiring). This template documents the same field names for whatever
+// converts a CSV to that JSON array upstream (e.g. the frontend), but
+// downloadLeadTemplate/BULK_TEMPLATE_HEADERS below are descriptive only;
+// they aren't read by bulkCreateLeads itself.
+const BULK_TEMPLATE_HEADERS = ["companyName", "partyName", "reason", "customReason", "assignedTo", "date", "time", "status"];
 
 const PARTY_SELECT =
   "id, partyName:party_name, ownerName:owner_name, ownerMobileNo:owner_mobile_no, ownerWhatsAppNo:owner_whatsapp_no, contactPerson:contact_person, personMobileNo:person_mobile_no, personWhatsAppNo:person_whatsapp_no, contactForPayment:contact_for_payment, contactMobileNo:contact_mobile_no, contactWhatsAppNo:contact_whatsapp_no, GSTNo:gst_no, partyTag:party_tag, address, createdAt:created_at, updatedAt:updated_at";
@@ -118,6 +129,14 @@ exports.getAllLeads = async (req, res) => {
   }
 };
 
+// §77: downloads a CSV template with just the header row, so an import
+// file matches the field names this endpoint actually expects.
+exports.downloadLeadTemplate = async (req, res) => {
+  res.setHeader("Content-Type", "text/csv");
+  res.setHeader("Content-Disposition", 'attachment; filename="lead-bulk-import-template.csv"');
+  res.status(200).send(BULK_TEMPLATE_HEADERS.join(",") + "\n");
+};
+
 exports.bulkCreateLeads = async (req, res) => {
   try {
     const leadsData = req.body;
@@ -125,18 +144,26 @@ exports.bulkCreateLeads = async (req, res) => {
       return res.status(400).json({ success: false, message: "Expected an array of lead data" });
     }
 
+    // §77: this already collected per-row errors and kept going on a bad
+    // row; the change here is just normalizing the error shape to
+    // {row, message} (row = 1-based position in the submitted array —
+    // there's no CSV header row to offset by, since the request body is
+    // already a parsed JSON array) so it matches the other bulk-import
+    // endpoints' history/reporting format.
     const createdLeads = [];
     const errors = [];
 
-    for (const leadData of leadsData) {
+    for (let i = 0; i < leadsData.length; i++) {
+      const leadData = leadsData[i];
+      const rowNum = i + 1;
       try {
         const { companyName, partyName, reason, customReason, assignedTo, date, time, status = "pending" } = leadData;
         if (!companyName || !partyName || !reason || !assignedTo || !date) {
-          errors.push({ partyName, message: "Missing required fields" });
+          errors.push({ row: rowNum, message: "Missing required fields" });
           continue;
         }
         if (!isValidId(companyName) || !isValidId(partyName) || !isValidId(assignedTo)) {
-          errors.push({ partyName, message: "Invalid ID format" });
+          errors.push({ row: rowNum, message: "Invalid ID format" });
           continue;
         }
 
@@ -157,16 +184,26 @@ exports.bulkCreateLeads = async (req, res) => {
         if (error) throw error;
         createdLeads.push(inserted);
       } catch (error) {
-        errors.push({ partyName: leadData.partyName, message: error.message || "Error processing lead" });
+        errors.push({ row: rowNum, message: error.message || "Error processing lead" });
       }
     }
 
+    await logImport({
+      req,
+      module: "lead",
+      fileName: null, // bulkCreateLeads takes a JSON array body, not an uploaded file
+      totalRows: leadsData.length,
+      successCount: createdLeads.length,
+      failedCount: errors.length,
+      errors,
+    });
+
     res.status(201).json({
       success: true,
-      message: "Bulk lead creation completed",
-      data: createdLeads,
-      errors: errors.length > 0 ? errors : undefined,
+      message: `Bulk lead creation finished: ${createdLeads.length} succeeded, ${errors.length} failed`,
       count: createdLeads.length,
+      errors,
+      data: withMongoId(createdLeads),
     });
   } catch (error) {
     console.error("Error in bulk lead creation:", error);

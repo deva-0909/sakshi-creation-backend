@@ -79,6 +79,16 @@ exports.createOrder = async (req, res) => {
       return res.status(404).json({ success: false, message: "Company not found" });
     }
 
+    // create_order_transactional only checks that party_id satisfies the
+    // FK constraint, which a soft-deleted party still does (it's not
+    // actually removed) -- so a deleted party could otherwise still be
+    // picked for a brand-new order. Reject that here rather than in the
+    // RPC, to keep that function's tested transaction untouched.
+    const { data: partyRow } = await supabase.from("parties").select("id").eq("id", party).eq("is_delete", false).maybeSingle();
+    if (!partyRow) {
+      return res.status(404).json({ success: false, message: "Party not found" });
+    }
+
     const initials = deriveInitials(company.company_name);
 
     // The sequence increment, the order insert, and the party

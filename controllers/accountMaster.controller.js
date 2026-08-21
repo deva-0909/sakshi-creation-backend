@@ -1,6 +1,19 @@
 const supabase = require("../lib/supabaseClient");
 const { isValidId, withMongoId } = require("../lib/helpers");
+const { logImport } = require("../lib/importLog");
 const XLSX = require("xlsx");
+
+// §77: the CSV/XLSX template a bulk-import file must match. companyName
+// and createdBy are supplied once for the whole file (via the request
+// body alongside the upload), so the per-row columns are everything else
+// that goes on the party + account_master pair.
+const BULK_TEMPLATE_HEADERS = [
+  "partyName", "ownerName", "ownerMobileNo", "ownerWhatsAppNo", "ownerEmail",
+  "contactPerson", "personMobileNo", "personWhatsAppNo", "contactPersonEmail",
+  "contactForPayment", "contactMobileNo", "contactWhatsAppNo", "contactForPaymentEmail",
+  "GSTNo", "unitNo", "marketName", "streetAddress", "landMark", "area", "pincode",
+  "reasonToVisit", "reference", "isRequestMode",
+];
 
 const PARTY_SELECT =
   "id, companyName:company_name_id, partyName:party_name, ownerName:owner_name, ownerMobileNo:owner_mobile_no, ownerWhatsAppNo:owner_whatsapp_no, ownerEmail:owner_email, contactPerson:contact_person, personMobileNo:person_mobile_no, personWhatsAppNo:person_whatsapp_no, contactPersonEmail:contact_person_email, contactForPayment:contact_for_payment, contactMobileNo:contact_mobile_no, contactWhatsAppNo:contact_whatsapp_no, contactForPaymentEmail:contact_for_payment_email, GSTNo:gst_no, address, partyTag:party_tag, statusApproval:status_approval, createdAt:created_at, updatedAt:updated_at";
@@ -54,6 +67,7 @@ exports.createAccountMaster = async (req, res) => {
       .eq("company_name_id", req.body.companyName)
       .eq("party_name", req.body.partyName)
       .eq("owner_whatsapp_no", req.body.ownerWhatsAppNo)
+      .eq("is_delete", false)
       .maybeSingle();
     if (existingParty) {
       return res.status(400).json({ success: false, message: "A party with this company, name and mobile number already exists" });
@@ -169,6 +183,14 @@ exports.getAllAccountMasters = async (req, res) => {
   }
 };
 
+// §77: downloads a CSV template with just the header row, so an import
+// file matches the columns this endpoint actually expects.
+exports.downloadAccountMasterTemplate = async (req, res) => {
+  res.setHeader("Content-Type", "text/csv");
+  res.setHeader("Content-Disposition", 'attachment; filename="accountMaster-bulk-import-template.csv"');
+  res.status(200).send(BULK_TEMPLATE_HEADERS.join(",") + "\n");
+};
+
 exports.bulkCreateAccountMasters = async (req, res) => {
   try {
     if (!req.file) {
@@ -193,8 +215,31 @@ exports.bulkCreateAccountMasters = async (req, res) => {
       return res.status(400).json({ success: false, message: `Invalid createdBy ID: ${globalCreatedBy}` });
     }
 
+    // §77: previously a failed party or account_master insert on any row
+    // threw and aborted the whole file (leaving earlier rows' parties/
+    // account_masters committed but nothing reported back). Now every row
+    // is processed independently and both outcomes are reported.
+    //
+    // Judgment call for the party -> account_master dependent pair: each
+    // row does two inserts (parties, then account_masters keyed off the
+    // new party's id). If the party insert fails, there's nothing to
+    // clean up -- just record the row's error and move on. If the party
+    // insert succeeds but the dependent account_master insert then fails,
+    // leaving that party row behind would be an orphan with no
+    // account_master ever pointing at it (the whole point of this
+    // endpoint is to create the pair together) and no way for the caller
+    // to discover or reconcile it from the response. So on that specific
+    // failure this compensates by deleting the just-inserted party before
+    // recording the row's error, keeping the two tables consistent with
+    // what the response actually reports as "succeeded" -- at the cost of
+    // one extra delete call for that row only.
     const createdIds = [];
-    for (const row of rows) {
+    const errors = [];
+
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      const rowNum = i + 2; // header is row 1, first data row is row 2
+
       const { data: newParty, error: partyErr } = await supabase
         .from("parties")
         .insert({
@@ -225,7 +270,11 @@ exports.bulkCreateAccountMasters = async (req, res) => {
         })
         .select("id")
         .single();
-      if (partyErr) throw partyErr;
+
+      if (partyErr) {
+        errors.push({ row: rowNum, message: `Failed to create party: ${partyErr.message}` });
+        continue;
+      }
 
       const { data: newAM, error: amErr } = await supabase
         .from("account_masters")
@@ -238,13 +287,37 @@ exports.bulkCreateAccountMasters = async (req, res) => {
         })
         .select("id")
         .single();
-      if (amErr) throw amErr;
+
+      if (amErr) {
+        // Compensate: don't leave an orphaned party with no account_master.
+        await supabase.from("parties").delete().eq("id", newParty.id);
+        errors.push({ row: rowNum, message: `Party created but failed to create account master (rolled back): ${amErr.message}` });
+        continue;
+      }
       createdIds.push(newAM.id);
     }
 
-    const { data: populated } = await supabase.from("account_masters").select(AM_SELECT).in("id", createdIds);
+    const { data: populated } = createdIds.length
+      ? await supabase.from("account_masters").select(AM_SELECT).in("id", createdIds)
+      : { data: [] };
 
-    res.status(201).json({ success: true, message: "Bulk account masters created successfully", data: withMongoId(populated) });
+    await logImport({
+      req,
+      module: "accountMaster",
+      fileName: req.file.originalname,
+      totalRows: rows.length,
+      successCount: createdIds.length,
+      failedCount: errors.length,
+      errors,
+    });
+
+    res.status(200).json({
+      success: true,
+      message: `Bulk account master upload finished: ${createdIds.length} succeeded, ${errors.length} failed`,
+      count: createdIds.length,
+      errors,
+      data: withMongoId(populated),
+    });
   } catch (error) {
     console.error("Error in bulk create account masters:", error);
     res.status(500).json({ success: false, message: "Failed to bulk create account masters", error: error.message });
@@ -433,7 +506,7 @@ exports.deleteAccountMaster = async (req, res) => {
       return res.status(404).json({ success: false, message: "Account master not found" });
     }
     await supabase.from("account_masters").update({ is_delete: true }).eq("id", req.params.id);
-    await supabase.from("parties").delete().eq("id", am.party_id);
+    await supabase.from("parties").update({ is_delete: true }).eq("id", am.party_id);
 
     res.status(200).json({
       success: true,
@@ -547,7 +620,7 @@ exports.getAccountMasterByStaffId = async (req, res) => {
 exports.searchParties = async (req, res) => {
   try {
     const { q } = req.query;
-    let query = supabase.from("parties").select(PARTY_SELECT).order("party_name", { ascending: true }).limit(20);
+    let query = supabase.from("parties").select(PARTY_SELECT).eq("is_delete", false).order("party_name", { ascending: true }).limit(20);
     if (q) query = query.ilike("party_name", `%${q}%`);
     const { data, error } = await query;
     if (error) throw error;

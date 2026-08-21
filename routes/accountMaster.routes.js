@@ -36,6 +36,9 @@ router.get("/staff", AccountMasterController.getAllStaff);
 
 router.post("/bulk-create", authorizePermission("account_master", "create"), upload.single("file"), AccountMasterController.bulkCreateAccountMasters);
 
+// §77: CSV template download for the bulk-import format above.
+router.get("/bulk-create/template", AccountMasterController.downloadAccountMasterTemplate);
+
 router.post("/by-company-party", AccountMasterController.getAccountMasterByCompanyAndParty);
 
 router.get("/parties/search", AccountMasterController.searchParties);

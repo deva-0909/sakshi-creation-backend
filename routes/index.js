@@ -19,6 +19,7 @@ const RoleDepartmentRouter = require("./roleDepartment.routes");
 const RoleDepartmentCompanyRouter = require("./roleDepartmentCompany.routes");
 const performanceInvoiceRoutes = require("./performanceInvoice.route");
 const Vendor = require("./vendor.routes");
+const ImportHistory = require("./importHistory.routes");
 
 router.use("/company", CompanyRouter);
 router.use("/staff", StaffRouter);
@@ -38,4 +39,5 @@ router.use("/material",MaterialRouter);
 router.use("/roleDepartment",RoleDepartmentRouter);
 router.use("/roleDepartmentCompany",RoleDepartmentCompanyRouter);
 router.use("/performance-invoice", performanceInvoiceRoutes);
+router.use("/import-history", ImportHistory);
 module.exports = router;

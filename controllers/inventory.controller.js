@@ -23,6 +23,7 @@ exports.getInventoryByCategory = async (req, res) => {
       .from("inventories")
       .select(SELECT)
       .eq("category", category)
+      .eq("is_delete", false)
       .order("date", { ascending: false });
 
     if (error) throw error;
@@ -44,14 +45,16 @@ exports.getInventorySummary = async (req, res) => {
       .from("inventories")
       .select("quantity")
       .eq("category", category)
-      .eq("type", "inward");
+      .eq("type", "inward")
+      .eq("is_delete", false);
     if (inErr) throw inErr;
 
     const { data: outward, error: outErr } = await supabase
       .from("inventories")
       .select("quantity")
       .eq("category", category)
-      .eq("type", "outward");
+      .eq("type", "outward")
+      .eq("is_delete", false);
     if (outErr) throw outErr;
 
     const lastPurchase = (inward || []).reduce((sum, r) => sum + Number(r.quantity || 0), 0);

@@ -25,4 +25,7 @@ router.delete("/delete/:id", authorizePermission("setup", "delete"), VendorContr
 
 router.post('/bulk', authorizePermission("setup", "create"), upload.single('file'), VendorController.bulkCreateVendors);
 
+// §77: CSV template download for the bulk-import format above.
+router.get('/bulk/template', VendorController.downloadVendorTemplate);
+
 module.exports = router;

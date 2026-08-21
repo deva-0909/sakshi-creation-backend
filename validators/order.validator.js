@@ -44,8 +44,9 @@ const createOrderSchema = z.object({
 // IMPORTANT: `updateOrder` (controllers/order.controller.js) reads 50+
 // fields off req.body beyond what createOrderSchema models — designer/
 // printer/binder/booklet-binder assignment and status, wasted-sheet
-// counts, printingrate/gsm/rateBook/totalAmount/ratePerUnit/bindergst,
-// paper/file fields, delivery info, and more, as each production stage
+// counts, printingrate/gsm/rateBook/totalAmount/ratePerUnit (bindergst
+// is now explicitly modeled too, see below), paper/file fields,
+// delivery info, and more, as each production stage
 // PATCHes only the fields relevant to it. zod object schemas strip
 // unrecognized keys by default, so a bare `.partial()` here silently
 // dropped every one of those fields before the controller ever saw
@@ -63,6 +64,7 @@ const updateOrderSchema = createOrderSchema.partial().extend({
   rateBook: numericField.optional(),
   totalAmount: numericField.optional(),
   ratePerUnit: numericField.optional(),
+  bindergst: numericField.optional(),
 }).passthrough();
 
 module.exports = { createOrderSchema, updateOrderSchema };

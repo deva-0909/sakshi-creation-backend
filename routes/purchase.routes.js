@@ -29,4 +29,8 @@ router.get("/getbycompany", PurchaseController.getPurchasesByCompany);
 router.get("/getbydaterange", PurchaseController.getPurchasesByDateRange);
 
 router.post('/bulk', authorizePermission("purchase", "create"), upload.single('file'), PurchaseController.bulkCreatePurchases);
+
+// §77: CSV template download for the bulk-import format above.
+router.get('/bulk/template', PurchaseController.downloadPurchaseTemplate);
+
 module.exports = router;

@@ -1,8 +1,14 @@
 const supabase = require("../lib/supabaseClient");
 const { isValidId, withMongoId } = require("../lib/helpers");
 const { logAudit } = require("../lib/audit");
+const { logImport } = require("../lib/importLog");
 const { Readable } = require("stream");
 const csv = require("csv-parser");
+
+// §77: the CSV template a bulk-import file must match. Kept as a plain
+// array so the download endpoint and any future validation can share
+// one source of truth for the expected columns.
+const BULK_TEMPLATE_HEADERS = ["name", "contactNumber", "whatsappNumber", "gst", "address"];
 
 const SELECT =
   "id, name, contactNumber:contact_number, whatsappNumber:whatsapp_number, gst, address, createdAt:created_at, updatedAt:updated_at, companyName:company_name_id(id, companyName:company_name)";
@@ -161,6 +167,14 @@ exports.deleteVendor = async (req, res) => {
   }
 };
 
+// §77: downloads a CSV template with just the header row, so an import
+// file matches the columns this endpoint actually expects.
+exports.downloadVendorTemplate = async (req, res) => {
+  res.setHeader("Content-Type", "text/csv");
+  res.setHeader("Content-Disposition", 'attachment; filename="vendor-bulk-import-template.csv"');
+  res.status(200).send(BULK_TEMPLATE_HEADERS.join(",") + "\n");
+};
+
 exports.bulkCreateVendors = async (req, res) => {
   try {
     const file = req.file;
@@ -185,39 +199,73 @@ exports.bulkCreateVendors = async (req, res) => {
         .on("error", reject);
     });
 
+    // §77: previously the first bad row aborted the whole file with one
+    // generic message and nothing else in the CSV was imported. Now every
+    // row is validated and (if valid) inserted independently, so one bad
+    // row doesn't block the rest — the response reports exactly which
+    // rows succeeded and which failed, and why.
     const gstRegex = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/;
-    const vendors = [];
-    for (const row of results) {
+    const saved = [];
+    const errors = [];
+
+    for (let i = 0; i < results.length; i++) {
+      const row = results[i];
+      const rowNum = i + 2; // header is row 1, first data row is row 2
       const { name, contactNumber, whatsappNumber, gst, address } = row;
+
       if (!name || !contactNumber || !whatsappNumber || !address) {
-        return res.status(400).json({ success: false, message: `Missing required fields in row: ${JSON.stringify(row)}` });
+        errors.push({ row: rowNum, message: "Missing required field(s): name, contactNumber, whatsappNumber, address" });
+        continue;
       }
       if (contactNumber.length !== 10 || !/^[0-9]{10}$/.test(contactNumber)) {
-        return res.status(400).json({ success: false, message: `Invalid contact number in row: ${JSON.stringify(row)}` });
+        errors.push({ row: rowNum, message: "Invalid contact number (must be 10 digits)" });
+        continue;
       }
       if (whatsappNumber.length !== 10 || !/^[0-9]{10}$/.test(whatsappNumber)) {
-        return res.status(400).json({ success: false, message: `Invalid WhatsApp number in row: ${JSON.stringify(row)}` });
+        errors.push({ row: rowNum, message: "Invalid WhatsApp number (must be 10 digits)" });
+        continue;
       }
       if (gst && !gstRegex.test(gst)) {
-        return res.status(400).json({ success: false, message: `Invalid GST number in row: ${JSON.stringify(row)}` });
+        errors.push({ row: rowNum, message: "Invalid GST number format" });
+        continue;
       }
-      vendors.push({
-        company_name_id: companyName,
-        name,
-        contact_number: contactNumber,
-        whatsapp_number: whatsappNumber,
-        gst: gst || "",
-        address,
-      });
+
+      const { data: insertedRow, error: insertErr } = await supabase
+        .from("vendors")
+        .insert({
+          company_name_id: companyName,
+          name,
+          contact_number: contactNumber,
+          whatsapp_number: whatsappNumber,
+          gst: gst || "",
+          address,
+          created_by: req.user?.id || null,
+        })
+        .select(SELECT)
+        .single();
+
+      if (insertErr) {
+        errors.push({ row: rowNum, message: insertErr.message });
+        continue;
+      }
+      saved.push(insertedRow);
     }
 
-    const { data: saved, error } = await supabase.from("vendors").insert(vendors).select(SELECT);
-    if (error) throw error;
+    await logImport({
+      req,
+      module: "vendor",
+      fileName: file.originalname,
+      totalRows: results.length,
+      successCount: saved.length,
+      failedCount: errors.length,
+      errors,
+    });
 
     res.status(200).json({
       success: true,
-      message: "Bulk vendor upload completed successfully",
+      message: `Bulk vendor upload finished: ${saved.length} succeeded, ${errors.length} failed`,
       count: saved.length,
+      errors,
       data: withMongoId(saved),
     });
   } catch (error) {

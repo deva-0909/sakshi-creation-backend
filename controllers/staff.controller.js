@@ -2,8 +2,15 @@ const supabase = require("../lib/supabaseClient");
 const jwt = require("jsonwebtoken");
 const { isValidId, withMongoId, hashPassword, comparePassword, maskAadhar } = require("../lib/helpers");
 const { logAudit } = require("../lib/audit");
+const { logImport } = require("../lib/importLog");
 const { Readable } = require("stream");
 const csv = require("csv-parser");
+
+// §77: the CSV template a bulk-import file must match.
+const BULK_TEMPLATE_HEADERS = [
+  "firstName", "lastName", "email", "mobileNo", "whatsappNo", "address",
+  "aadharNo", "joiningDate", "birthDay", "password",
+];
 
 const SELECT_NO_PASSWORD = `
   id, firstName:first_name, lastName:last_name, email, mobileNo:mobile_no, whatsappNo:whatsapp_no,
@@ -439,6 +446,14 @@ const normalizeDate = (dateStr) => {
   return null;
 };
 
+// §77: downloads a CSV template with just the header row, so an import
+// file matches the columns this endpoint actually expects.
+exports.downloadStaffTemplate = async (req, res) => {
+  res.setHeader("Content-Type", "text/csv");
+  res.setHeader("Content-Disposition", 'attachment; filename="staff-bulk-import-template.csv"');
+  res.status(200).send(BULK_TEMPLATE_HEADERS.join(",") + "\n");
+};
+
 exports.bulkCreateStaff = async (req, res) => {
   try {
     const { role, companyName } = req.body;
@@ -468,81 +483,120 @@ exports.bulkCreateStaff = async (req, res) => {
         .on("error", reject);
     });
 
+    // §77: previously the first bad row aborted the whole file. Now every
+    // row is validated and (if valid) inserted independently, so one bad
+    // row doesn't block the rest.
     const aadharRegex = /^[0-9]{12}$/;
     const mobileRegex = /^[0-9]{10}$/;
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    const staffMembers = [];
+    const saved = [];
+    const errors = [];
 
-    for (const row of results) {
+    for (let i = 0; i < results.length; i++) {
+      const row = results[i];
+      const rowNum = i + 2; // header is row 1, first data row is row 2
       const { firstName, lastName, email, mobileNo, whatsappNo, address, aadharNo, joiningDate, birthDay, password } = row;
 
       const requiredFields = ["firstName", "lastName", "mobileNo", "whatsappNo", "address", "aadharNo", "joiningDate", "password"];
-      for (const field of requiredFields) {
-        if (!row[field]) {
-          return res.status(400).json({ success: false, message: `Missing required field '${field}' in row: ${JSON.stringify(row)}.` });
-        }
+      const missingField = requiredFields.find((field) => !row[field]);
+      if (missingField) {
+        errors.push({ row: rowNum, message: `Missing required field '${missingField}'` });
+        continue;
       }
       if (!mobileRegex.test(mobileNo)) {
-        return res.status(400).json({ success: false, message: `Invalid mobileNo in row: ${JSON.stringify(row)}.` });
+        errors.push({ row: rowNum, message: "Invalid mobileNo" });
+        continue;
       }
       if (!mobileRegex.test(whatsappNo)) {
-        return res.status(400).json({ success: false, message: `Invalid whatsappNo in row: ${JSON.stringify(row)}.` });
+        errors.push({ row: rowNum, message: "Invalid whatsappNo" });
+        continue;
       }
       const normalizedAadhar = normalizeAadharNo(aadharNo);
       if (!normalizedAadhar || !aadharRegex.test(normalizedAadhar)) {
-        return res.status(400).json({ success: false, message: `Invalid aadharNo in row: ${JSON.stringify(row)}.` });
+        errors.push({ row: rowNum, message: "Invalid aadharNo" });
+        continue;
       }
       if (email && !emailRegex.test(email)) {
-        return res.status(400).json({ success: false, message: `Invalid email in row: ${JSON.stringify(row)}.` });
+        errors.push({ row: rowNum, message: "Invalid email" });
+        continue;
       }
       const normalizedJoiningDate = normalizeDate(joiningDate);
       if (!normalizedJoiningDate) {
-        return res.status(400).json({ success: false, message: `Invalid joiningDate in row: ${JSON.stringify(row)}.` });
+        errors.push({ row: rowNum, message: "Invalid joiningDate" });
+        continue;
       }
       const normalizedBirthDay = birthDay ? normalizeDate(birthDay) : null;
       if (birthDay && !normalizedBirthDay) {
-        return res.status(400).json({ success: false, message: `Invalid birthDay in row: ${JSON.stringify(row)}.` });
+        errors.push({ row: rowNum, message: "Invalid birthDay" });
+        continue;
       }
       if (email) {
         const { data: existingEmail } = await supabase.from("staff").select("id").eq("email", email).eq("is_delete", false).maybeSingle();
         if (existingEmail) {
-          return res.status(400).json({ success: false, message: `Email already exists: ${email}` });
+          errors.push({ row: rowNum, message: `Email already exists: ${email}` });
+          continue;
         }
       }
       const { data: existingAadhar } = await supabase.from("staff").select("id").eq("aadhar_no", normalizedAadhar).eq("is_delete", false).maybeSingle();
       if (existingAadhar) {
-        return res.status(400).json({ success: false, message: `Aadhar number already exists: ${normalizedAadhar}` });
+        errors.push({ row: rowNum, message: `Aadhar number already exists: ${normalizedAadhar}` });
+        continue;
       }
 
-      staffMembers.push({
-        first_name: firstName,
-        last_name: lastName,
-        email: email || null,
-        mobile_no: mobileNo,
-        whatsapp_no: whatsappNo,
-        address,
-        aadhar_no: normalizedAadhar,
-        joining_date: normalizedJoiningDate,
-        birth_day: normalizedBirthDay,
-        role_id: role,
-        company_name_id: companyName,
-        password: await hashPassword(password),
-        aadhar_files: [],
-        address_files: [],
-      });
+      const { data: insertedStaff, error: insertErr } = await supabase
+        .from("staff")
+        .insert({
+          first_name: firstName,
+          last_name: lastName,
+          email: email || null,
+          mobile_no: mobileNo,
+          whatsapp_no: whatsappNo,
+          address,
+          aadhar_no: normalizedAadhar,
+          joining_date: normalizedJoiningDate,
+          birth_day: normalizedBirthDay,
+          role_id: role,
+          company_name_id: companyName,
+          password: await hashPassword(password),
+          aadhar_files: [],
+          address_files: [],
+          created_by: req.user?.id || null,
+        })
+        .select("id")
+        .single();
+
+      if (insertErr) {
+        errors.push({ row: rowNum, message: insertErr.message });
+        continue;
+      }
+      saved.push(insertedStaff);
     }
 
-    const { data: savedStaff, error } = await supabase.from("staff").insert(staffMembers).select("id");
-    if (error) throw error;
+    if (saved.length > 0) {
+      await updateAllRoleUserCounts();
+    }
 
-    await updateAllRoleUserCounts();
+    const { data: populatedStaff } = saved.length
+      ? await supabase.from("staff").select(SELECT_NO_PASSWORD).in("id", saved.map((s) => s.id))
+      : { data: [] };
 
-    const { data: populatedStaff } = await supabase
-      .from("staff")
-      .select(SELECT_NO_PASSWORD)
-      .in("id", savedStaff.map((s) => s.id));
+    await logImport({
+      req,
+      module: "staff",
+      fileName: file[0].originalname,
+      totalRows: results.length,
+      successCount: saved.length,
+      failedCount: errors.length,
+      errors,
+    });
 
-    res.status(201).json({ success: true, message: "Bulk staff creation completed", count: savedStaff.length, data: withMongoId(populatedStaff) });
+    res.status(200).json({
+      success: true,
+      message: `Bulk staff upload finished: ${saved.length} succeeded, ${errors.length} failed`,
+      count: saved.length,
+      errors,
+      data: withMongoId(populatedStaff),
+    });
   } catch (error) {
     console.error("Bulk create error:", error);
     res.status(500).json({ success: false, message: error.message || "Failed to create staff in bulk." });

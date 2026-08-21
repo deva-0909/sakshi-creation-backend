@@ -23,5 +23,7 @@ router.delete("/delete/:id", authorizePermission("setup.paper-material", "delete
 
 router.post('/bulk', authorizePermission("setup.paper-material", "create"), upload.single('file'), MaterialController.bulkCreateMaterials);
 
+// §77: CSV template download for the bulk-import format above.
+router.get('/bulk/template', MaterialController.downloadMaterialTemplate);
 
 module.exports = router;
