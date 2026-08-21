@@ -22,7 +22,15 @@ const createStaffSchema = z.object({
 });
 
 // Update payloads are partial — any subset of the above fields, still
-// type-checked when present.
-const updateStaffSchema = createStaffSchema.partial();
+// type-checked when present. `status` isn't part of create (a new staff
+// member is always created active) but updateStaff's own patch logic
+// reads req.body.status — must be modeled here or zod's default
+// key-stripping silently drops it, making that code path in updateStaff
+// a permanent no-op (a separate dedicated /updatestatus/:id route also
+// exists and isn't affected, so this wasn't a total loss of function,
+// just dead code sitting behind the general update endpoint).
+const updateStaffSchema = createStaffSchema.partial().extend({
+  status: z.boolean().optional(),
+});
 
 module.exports = { createStaffSchema, updateStaffSchema };

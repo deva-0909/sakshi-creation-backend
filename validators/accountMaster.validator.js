@@ -39,6 +39,11 @@ const createAccountMasterSchema = z.object({
 
 // Update: companyName + reasonToVisit are still required per the
 // controller; other fields remain optional (createdBy optional there too).
+// `statusApproval` isn't part of the create payload (a party starts
+// Pending/Approved based on isRequestMode) but updateAccountMaster reads
+// req.body.statusApproval to let an update also change approval status —
+// must be modeled here or zod's default key-stripping silently drops it
+// and that field becomes permanently un-updatable via this endpoint.
 const updateAccountMasterSchema = createAccountMasterSchema
   .omit({ address: true })
   .extend({ address: addressSchema.partial() })
@@ -46,6 +51,7 @@ const updateAccountMasterSchema = createAccountMasterSchema
   .extend({
     companyName: idField,
     reasonToVisit: z.string().trim().min(1, "reasonToVisit is required"),
+    statusApproval: z.enum(["Pending", "Approved"]).optional(),
   });
 
 module.exports = { createAccountMasterSchema, updateAccountMasterSchema };
