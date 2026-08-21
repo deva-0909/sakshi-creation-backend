@@ -1,5 +1,5 @@
 const supabase = require("../lib/supabaseClient");
-const { isValidId, withMongoId } = require("../lib/helpers");
+const { isValidId, withMongoId, deriveInitials } = require("../lib/helpers");
 const { logAudit } = require("../lib/audit");
 
 const ORDER_SELECT = `
@@ -27,17 +27,6 @@ const ORDER_SELECT = `
   bookletBinder:booklet_binder_id(id, firstName:first_name, lastName:last_name),
   deliveryStaff:delivery_staff_id(id, firstName:first_name, lastName:last_name)
 `;
-
-// Pure string logic only — the actual sequence increment now happens
-// inside create_order_transactional (see migration
-// "create_order_transactional"), atomically with the order insert.
-function deriveInitials(companyName) {
-  const words = (companyName || "").trim().split(/\s+/);
-  if (words.length >= 2) {
-    return (words[0][0] + words[1][0]).toUpperCase();
-  }
-  return (words[0] || "").substring(0, 2).toUpperCase();
-}
 
 function processFileList(input) {
   if (!input) return [];

@@ -1,5 +1,5 @@
 const supabase = require("../lib/supabaseClient");
-const { isValidId, withMongoId } = require("../lib/helpers");
+const { isValidId, withMongoId, categoryForRole } = require("../lib/helpers");
 const { logAudit } = require("../lib/audit");
 const { logImport } = require("../lib/importLog");
 const { Readable } = require("stream");
@@ -19,14 +19,6 @@ const SELECT = `
   for:for_role_id(id, roleName:role_name),
   forCompany:for_company_id(id, firstName:first_name, lastName:last_name)
 `;
-
-function categoryForRole(roleName) {
-  const r = (roleName || "").toLowerCase();
-  if (r.includes("printer")) return "printer";
-  if (r.includes("binder")) return "binder";
-  if (r.includes("booklet")) return "booklet";
-  return "factory";
-}
 
 exports.getCompanies = async (req, res) => {
   try {

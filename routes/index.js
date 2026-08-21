@@ -20,6 +20,9 @@ const RoleDepartmentCompanyRouter = require("./roleDepartmentCompany.routes");
 const performanceInvoiceRoutes = require("./performanceInvoice.route");
 const Vendor = require("./vendor.routes");
 const ImportHistory = require("./importHistory.routes");
+const Quotation = require("./quotation.routes");
+const Bom = require("./bom.routes");
+const JobCard = require("./jobCard.routes");
 
 router.use("/company", CompanyRouter);
 router.use("/staff", StaffRouter);
@@ -40,4 +43,7 @@ router.use("/roleDepartment",RoleDepartmentRouter);
 router.use("/roleDepartmentCompany",RoleDepartmentCompanyRouter);
 router.use("/performance-invoice", performanceInvoiceRoutes);
 router.use("/import-history", ImportHistory);
+router.use("/quotations", Quotation);
+router.use("/boms", Bom);
+router.use("/job-cards", JobCard);
 module.exports = router;
