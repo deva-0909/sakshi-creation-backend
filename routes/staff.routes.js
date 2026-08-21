@@ -8,24 +8,27 @@ const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
 });
-router.post("/create", StaffController.createStaff);
-
-router.get("/getall", StaffController.getStaff);
-
-router.get("/getbyid/:id", StaffController.getStaffById);
-
-router.patch("/update/:id", StaffController.updateStaff);
-
-router.patch("/updatestatus/:id", StaffController.updateStaffStatus);
-
-router.delete("/delete/:id", StaffController.deleteStaff);
-
+// Public: no account exists yet at this point in the flow.
 router.post("/login", StaffController.loginStaff);
 
-router.post("/getrol", StaffController.getrol);
+// Everything else requires a valid session.
+router.post("/create", authenticateToken, StaffController.createStaff);
+
+router.get("/getall", authenticateToken, StaffController.getStaff);
+
+router.get("/getbyid/:id", authenticateToken, StaffController.getStaffById);
+
+router.patch("/update/:id", authenticateToken, StaffController.updateStaff);
+
+router.patch("/updatestatus/:id", authenticateToken, StaffController.updateStaffStatus);
+
+router.delete("/delete/:id", authenticateToken, StaffController.deleteStaff);
+
+router.post("/getrol", authenticateToken, StaffController.getrol);
 
 router.post(
   "/bulk",
+  authenticateToken,
   upload.fields([{ name: "file", maxCount: 1 }]),
   StaffController.bulkCreateStaff
 );
@@ -34,5 +37,5 @@ router.patch(
   authenticateToken,
   StaffController.updateStaffPassword
 );
-router.get("/permissions/:id", StaffController.getStaffPermission);
+router.get("/permissions/:id", authenticateToken, StaffController.getStaffPermission);
 module.exports = router;

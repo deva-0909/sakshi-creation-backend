@@ -1,7 +1,10 @@
 const express = require("express");
 const AssignTaskController = require("../controllers/assignTask.controller");
 
+const { authenticateToken } = require("../middleware/auth");
 const router = express.Router();
+
+router.use(authenticateToken);
 
 // Create a new assign task
 router.post("/create", AssignTaskController.createAssignTask);

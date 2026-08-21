@@ -16,20 +16,22 @@ const {
 } = require("../controllers/order.controller");
 const { authenticateToken } = require("../middleware/auth");
 
-router.post("/create", authenticateToken, createOrder);
+router.use(authenticateToken);
+
+router.post("/create", createOrder);
 
 router.get("/all", getAllOrders);
 router.get("/getbystaffid/:id", getOrdersByStaffId);
 
-router.get("/printer", authenticateToken, getPrinterById);
+router.get("/printer", getPrinterById);
 
-router.get("/binder", authenticateToken, getBinderById);
+router.get("/binder", getBinderById);
 
-router.get("/bookletBinder", authenticateToken, getBookletBinderById);
+router.get("/bookletBinder", getBookletBinderById);
 
 router.put("/:orderId/status", updateStaffStatus);
 
-router.get("/designe", authenticateToken, getDesignerById);
+router.get("/designe", getDesignerById);
 
 router.get("/:id", getOrderById);
 

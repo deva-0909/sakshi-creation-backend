@@ -12,9 +12,7 @@ exports.authenticateToken = (req, res, next) => {
   }
 
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || "your_jwt_secret_key");
-    console.log("decoded", decoded);
-
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
     req.user = decoded; // Attach user data (id, role) to request
     next();
   } catch (error) {

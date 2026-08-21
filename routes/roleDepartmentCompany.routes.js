@@ -1,7 +1,10 @@
 const express = require('express');
 const RoleDepartmentCompanyController = require('../controllers/roleDepartmentCompany.controller');
 
+const { authenticateToken } = require("../middleware/auth");
 const router = express.Router();
+
+router.use(authenticateToken);
 
 router.post("/create", RoleDepartmentCompanyController.createRoleDepartmentCompany);
 

@@ -267,7 +267,8 @@ exports.loginStaff = async (req, res) => {
 
     const token = jwt.sign(
       { id: staff.id, role: staff.role?.roleName, roleData: staff.role },
-      process.env.JWT_SECRET || "your_jwt_secret_key"
+      process.env.JWT_SECRET,
+      { expiresIn: "7d" }
     );
 
     res.status(200).json({

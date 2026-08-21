@@ -6,6 +6,13 @@ const cookieParser = require("cookie-parser");
 require("dotenv").config();
 const createError = require("http-errors");
 
+if (!process.env.JWT_SECRET) {
+  throw new Error(
+    "JWT_SECRET environment variable is required and must not be empty. " +
+    "Set it in your deployment environment (see .env.example)."
+  );
+}
+
 const app = express();
 
 

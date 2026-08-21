@@ -1,5 +1,8 @@
 const express = require("express")
+const { authenticateToken } = require("../middleware/auth");
 const router = express.Router()
+
+router.use(authenticateToken);
 const RoleController = require("../controllers/role.controller");
 
 router.post("/create",RoleController.createRole

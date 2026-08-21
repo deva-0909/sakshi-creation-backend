@@ -2,7 +2,10 @@ const express = require("express");
 const AccountMasterController = require("../controllers/accountMaster.controller");
 const multer = require("multer");
 const upload = multer({ storage: multer.memoryStorage() });
+const { authenticateToken } = require("../middleware/auth");
 const router = express.Router();
+
+router.use(authenticateToken);
 
 // Create a new account master
 router.post("/create", AccountMasterController.createAccountMaster);

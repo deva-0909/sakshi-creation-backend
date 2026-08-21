@@ -1,7 +1,10 @@
 const express = require("express");
 const LeadController = require("../controllers/lead.controller");
 
+const { authenticateToken } = require("../middleware/auth");
 const router = express.Router();
+
+router.use(authenticateToken);
 
 // Create a new lead
 router.post("/create", LeadController.createLead);

@@ -2,7 +2,10 @@ const express = require('express');
 const VendorController = require('../controllers/vendor.controller');
 const multer = require('multer');
 
+const { authenticateToken } = require("../middleware/auth");
 const router = express.Router();
+
+router.use(authenticateToken);
 const upload = multer({ storage: multer.memoryStorage() });
 
 router.post("/create", VendorController.createVendor);

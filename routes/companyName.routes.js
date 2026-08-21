@@ -1,7 +1,10 @@
 const express = require("express");
 const CompanyNameController = require("../controllers/companyName.controller");
 
+const { authenticateToken } = require("../middleware/auth");
 const router = express.Router();
+
+router.use(authenticateToken);
 
 // Create a new company name
 router.post("/create", CompanyNameController.createCompanyName);
