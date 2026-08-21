@@ -2,6 +2,7 @@ const express = require("express")
 const router = express.Router()
 const upload = require("../middleware/fileUpload")
 const multer = require("multer")
+const { authenticateToken } = require("../middleware/auth")
 const {
   uploadSingleFile,
   uploadMultipleFiles,
@@ -9,6 +10,12 @@ const {
   getFileInfo,
   listUploads, // Add this new function
 } = require("../controllers/fileUploadController")
+
+// The frontend already sends Authorization on every call to these
+// endpoints (src/services/fileUpload.service.ts), so plain header auth
+// is safe here — unlike fileDownload.routes.js, nothing hits these via
+// direct browser navigation.
+router.use(authenticateToken)
 
 // Upload single file
 router.post("/single", upload.single("file"), uploadSingleFile)
@@ -38,6 +45,12 @@ router.use((error, req, res, next) => {
       return res.status(400).json({
         success: false,
         message: "Too many files. Maximum 10 files allowed at once.",
+      })
+    }
+    if (error.code === "LIMIT_UNEXPECTED_FILE") {
+      return res.status(400).json({
+        success: false,
+        message: "Unsupported file type. Allowed: PDF, JPG, PNG, XLSX, XLS, CSV, DOC, DOCX.",
       })
     }
   }

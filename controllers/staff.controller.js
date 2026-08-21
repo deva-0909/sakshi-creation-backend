@@ -1,6 +1,6 @@
 const supabase = require("../lib/supabaseClient");
 const jwt = require("jsonwebtoken");
-const { isValidId, withMongoId, hashPassword, comparePassword } = require("../lib/helpers");
+const { isValidId, withMongoId, hashPassword, comparePassword, maskAadhar } = require("../lib/helpers");
 const { Readable } = require("stream");
 const csv = require("csv-parser");
 
@@ -100,7 +100,11 @@ exports.getStaff = async (req, res) => {
   try {
     const { data, error } = await supabase.from("staff").select(SELECT_NO_PASSWORD);
     if (error) throw error;
-    res.status(200).json({ success: true, data: withMongoId(data) });
+    // Bulk listing — mask Aadhar here so one call can't enumerate every
+    // staff member's full number. getStaffById still returns the full
+    // number, since that's what the edit form needs.
+    const masked = (data || []).map((row) => ({ ...row, aadharNo: maskAadhar(row.aadharNo) }));
+    res.status(200).json({ success: true, data: withMongoId(masked) });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
