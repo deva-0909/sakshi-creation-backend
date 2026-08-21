@@ -3,6 +3,7 @@ const PurchaseController = require('../controllers/purchase.controller');
 const multer = require("multer");
 
 const { authenticateToken } = require("../middleware/auth");
+const { authorizePermission } = require("../middleware/authorize");
 const { validate } = require("../middleware/validate");
 const { createPurchaseSchema, updatePurchaseSchema } = require("../validators/purchase.validator");
 const router = express.Router();
@@ -17,7 +18,7 @@ router.get("/getbyid/:id", PurchaseController.getPurchaseById);
 
 router.patch("/update/:id", validate(updatePurchaseSchema), PurchaseController.updatePurchase);
 
-router.delete("/delete/:id", PurchaseController.deletePurchase);
+router.delete("/delete/:id", authorizePermission("purchase", "delete"), PurchaseController.deletePurchase);
 
 router.get("/getstaffbyrole/:roleId", PurchaseController.getStaffByRole);
 
@@ -27,5 +28,5 @@ router.get("/getbycompany", PurchaseController.getPurchasesByCompany);
 
 router.get("/getbydaterange", PurchaseController.getPurchasesByDateRange);
 
-router.post('/bulk', upload.single('file'), PurchaseController.bulkCreatePurchases);
+router.post('/bulk', authorizePermission("purchase", "create"), upload.single('file'), PurchaseController.bulkCreatePurchases);
 module.exports = router;

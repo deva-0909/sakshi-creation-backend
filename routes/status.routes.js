@@ -10,6 +10,7 @@ const {
   reorderStatuses,
 } = require("../controllers/statusController")
 const { authenticateToken } = require("../middleware/auth")
+const { authorizePermission } = require("../middleware/authorize")
 
 
 router.post("/:type/create", authenticateToken, createStatus)
@@ -22,7 +23,9 @@ router.get("/:type/:id",authenticateToken, getStatusById)
 
 router.put("/:type/update/:id",authenticateToken, updateStatus)
 
-router.delete("/:type/delete/:id",authenticateToken, deleteStatus)
+// No dedicated permission key for workflow-status master data — falls
+// back to the generic setup bucket.
+router.delete("/:type/delete/:id", authenticateToken, authorizePermission("setup", "delete"), deleteStatus)
 
 router.put("/:type/reorder",authenticateToken, reorderStatuses)
 

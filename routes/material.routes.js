@@ -4,6 +4,7 @@ const MaterialController = require("../controllers/material.controller");
 const multer = require("multer");
 
 const { authenticateToken } = require("../middleware/auth");
+const { authorizePermission } = require("../middleware/authorize");
 const router = express.Router();
 
 router.use(authenticateToken);
@@ -16,9 +17,9 @@ router.get("/getbyid/:id", MaterialController.getMaterialById);
 
 router.patch("/update/:id", MaterialController.updateMaterial);
 
-router.delete("/delete/:id", MaterialController.deleteMaterial);
+router.delete("/delete/:id", authorizePermission("setup.paper-material", "delete"), MaterialController.deleteMaterial);
 
-router.post('/bulk', upload.single('file'), MaterialController.bulkCreateMaterials);
+router.post('/bulk', authorizePermission("setup.paper-material", "create"), upload.single('file'), MaterialController.bulkCreateMaterials);
 
 
 module.exports = router;

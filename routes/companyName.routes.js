@@ -2,6 +2,7 @@ const express = require("express");
 const CompanyNameController = require("../controllers/companyName.controller");
 
 const { authenticateToken } = require("../middleware/auth");
+const { authorizePermission } = require("../middleware/authorize");
 const router = express.Router();
 
 router.use(authenticateToken);
@@ -24,6 +25,6 @@ router.get("/get-party-with-company-id/:id", CompanyNameController.getPartywithC
 router.patch("/update/:id", CompanyNameController.updateCompanyName);
 
 // Delete a company name by ID
-router.delete("/delete/:id", CompanyNameController.deleteCompanyName);
+router.delete("/delete/:id", authorizePermission("setup.company-name", "delete"), CompanyNameController.deleteCompanyName);
 
 module.exports = router;

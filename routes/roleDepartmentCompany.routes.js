@@ -2,6 +2,7 @@ const express = require('express');
 const RoleDepartmentCompanyController = require('../controllers/roleDepartmentCompany.controller');
 
 const { authenticateToken } = require("../middleware/auth");
+const { authorizePermission } = require("../middleware/authorize");
 const router = express.Router();
 
 router.use(authenticateToken);
@@ -14,6 +15,8 @@ router.get("/getbyid/:id", RoleDepartmentCompanyController.getRoleDepartmentComp
 
 router.patch("/update/:id", RoleDepartmentCompanyController.updateRoleDepartmentCompany);
 
-router.delete("/delete/:id", RoleDepartmentCompanyController.deleteRoleDepartmentCompany);
+// Same reasoning as roleDepartment.routes.js — no dedicated permission
+// key, falls back through setup.role then the generic setup bucket.
+router.delete("/delete/:id", authorizePermission(["setup.role", "setup"], "delete"), RoleDepartmentCompanyController.deleteRoleDepartmentCompany);
 
 module.exports = router;

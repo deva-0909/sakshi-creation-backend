@@ -3,6 +3,7 @@ const AccountMasterController = require("../controllers/accountMaster.controller
 const multer = require("multer");
 const upload = multer({ storage: multer.memoryStorage() });
 const { authenticateToken } = require("../middleware/auth");
+const { authorizePermission } = require("../middleware/authorize");
 const router = express.Router();
 
 router.use(authenticateToken);
@@ -23,15 +24,15 @@ router.get("/getbystaffid/:id", AccountMasterController.getAccountMasterByStaffI
 router.patch("/update/:id", AccountMasterController.updateAccountMaster);
 
 // Update account master status
-router.patch("/updatestatus/:id", AccountMasterController.updateAccountMasterStatus);
+router.patch("/updatestatus/:id", authorizePermission("account_master", "edit"), AccountMasterController.updateAccountMasterStatus);
 
 // Delete an account master by ID
-router.delete("/delete/:id", AccountMasterController.deleteAccountMaster);
+router.delete("/delete/:id", authorizePermission("account_master", "delete"), AccountMasterController.deleteAccountMaster);
 
 // Get all staff for createdBy dropdown
 router.get("/staff", AccountMasterController.getAllStaff);
 
-router.post("/bulk-create", upload.single("file"), AccountMasterController.bulkCreateAccountMasters);
+router.post("/bulk-create", authorizePermission("account_master", "create"), upload.single("file"), AccountMasterController.bulkCreateAccountMasters);
 
 router.post("/by-company-party", AccountMasterController.getAccountMasterByCompanyAndParty);
 

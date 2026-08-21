@@ -1,6 +1,7 @@
 const express = require("express");
 const StaffController = require("../controllers/staff.controller");
 const { authenticateToken } = require("../middleware/auth");
+const { authorizePermission } = require("../middleware/authorize");
 const { validate } = require("../middleware/validate");
 const { createStaffSchema, updateStaffSchema } = require("../validators/staff.validator");
 const multer = require("multer");
@@ -22,15 +23,16 @@ router.get("/getbyid/:id", authenticateToken, StaffController.getStaffById);
 
 router.patch("/update/:id", authenticateToken, validate(updateStaffSchema), StaffController.updateStaff);
 
-router.patch("/updatestatus/:id", authenticateToken, StaffController.updateStaffStatus);
+router.patch("/updatestatus/:id", authenticateToken, authorizePermission("setup.staff", "edit"), StaffController.updateStaffStatus);
 
-router.delete("/delete/:id", authenticateToken, StaffController.deleteStaff);
+router.delete("/delete/:id", authenticateToken, authorizePermission("setup.staff", "delete"), StaffController.deleteStaff);
 
 router.post("/getrol", authenticateToken, StaffController.getrol);
 
 router.post(
   "/bulk",
   authenticateToken,
+  authorizePermission("setup.staff", "create"),
   upload.fields([{ name: "file", maxCount: 1 }]),
   StaffController.bulkCreateStaff
 );

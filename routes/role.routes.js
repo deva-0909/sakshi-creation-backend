@@ -1,5 +1,6 @@
 const express = require("express")
 const { authenticateToken } = require("../middleware/auth");
+const { authorizePermission } = require("../middleware/authorize");
 const router = express.Router()
 
 router.use(authenticateToken);
@@ -17,7 +18,7 @@ router.get("/getbyid/:id", RoleController.getRoleById);
 router.put("/updatebyid/:id", RoleController.updateRoleById);
 
 // Delete role by ID
-router.delete("/delete/:id", RoleController.deleteRoleById);
+router.delete("/delete/:id", authorizePermission("setup.role", "delete"), RoleController.deleteRoleById);
 
 
 

@@ -2,6 +2,7 @@ const express = require("express");
 const AssignTaskController = require("../controllers/assignTask.controller");
 
 const { authenticateToken } = require("../middleware/auth");
+const { authorizePermission } = require("../middleware/authorize");
 const router = express.Router();
 
 router.use(authenticateToken);
@@ -20,10 +21,10 @@ router.get("/getbystaffid/:id", AssignTaskController.getTasksByStaffId);
 router.patch("/update/:id", AssignTaskController.updateAssignTask);
 
 // Update assign task status
-router.patch("/updatestatus/:id", AssignTaskController.updateAssignTaskStatus);
+router.patch("/updatestatus/:id", authorizePermission("assign_task", "edit"), AssignTaskController.updateAssignTaskStatus);
 
 // Delete an assign task by ID
-router.delete("/delete/:id", AssignTaskController.deleteAssignTask);
+router.delete("/delete/:id", authorizePermission("assign_task", "delete"), AssignTaskController.deleteAssignTask);
 
 // Get party names by company name for dropdown
 router.get("/party-names", AssignTaskController.getPartyNamesByCompany);

@@ -15,6 +15,7 @@ const {
   updateStaffStatus
 } = require("../controllers/order.controller");
 const { authenticateToken } = require("../middleware/auth");
+const { authorizePermission } = require("../middleware/authorize");
 const { validate } = require("../middleware/validate");
 const { createOrderSchema, updateOrderSchema } = require("../validators/order.validator");
 
@@ -31,7 +32,7 @@ router.get("/binder", getBinderById);
 
 router.get("/bookletBinder", getBookletBinderById);
 
-router.put("/:orderId/status", updateStaffStatus);
+router.put("/:orderId/status", authorizePermission("all_orders", "edit"), updateStaffStatus);
 
 router.get("/designe", getDesignerById);
 
@@ -39,7 +40,7 @@ router.get("/:id", getOrderById);
 
 router.put("/update/:id", validate(updateOrderSchema), updateOrder);
 
-router.delete("/delete/:id", deleteOrder);
+router.delete("/delete/:id", authorizePermission("all_orders", "delete"), deleteOrder);
 
 router.get("/company/:companyId/party/:partyId", getOrdersByCompanyAndParty);
 
