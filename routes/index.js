@@ -25,6 +25,9 @@ const Bom = require("./bom.routes");
 const JobCard = require("./jobCard.routes");
 const Machine = require("./machine.routes");
 const StockLedger = require("./stockLedger.routes");
+const Rfq = require("./rfq.routes");
+const PurchaseOrder = require("./purchaseOrder.routes");
+const Grn = require("./grn.routes");
 
 router.use("/company", CompanyRouter);
 router.use("/staff", StaffRouter);
@@ -50,4 +53,7 @@ router.use("/boms", Bom);
 router.use("/job-cards", JobCard);
 router.use("/machines", Machine);
 router.use("/stock-ledger", StockLedger);
+router.use("/rfqs", Rfq);
+router.use("/purchase-orders", PurchaseOrder);
+router.use("/grns", Grn);
 module.exports = router;
