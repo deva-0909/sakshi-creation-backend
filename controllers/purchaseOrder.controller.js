@@ -1,6 +1,7 @@
 const supabase = require("../lib/supabaseClient");
 const { isValidId, withMongoId, deriveInitials } = require("../lib/helpers");
 const { logAudit } = require("../lib/audit");
+const { notifyStatusChange } = require("../lib/notify");
 
 const SELECT = `
   id, poNumber:po_number, status, expectedDate:expected_date, notes,
@@ -44,7 +45,7 @@ async function transition(req, res, { toStatus, requireRemarksField, extraUpdate
     if (!isValidId(id)) {
       return res.status(400).json({ success: false, message: "Invalid purchase order ID" });
     }
-    const { data: po } = await supabase.from("purchase_orders").select("id, status").eq("id", id).eq("is_delete", false).maybeSingle();
+    const { data: po } = await supabase.from("purchase_orders").select("id, status, created_by").eq("id", id).eq("is_delete", false).maybeSingle();
     if (!po) {
       return res.status(404).json({ success: false, message: "Purchase order not found" });
     }
@@ -74,6 +75,18 @@ async function transition(req, res, { toStatus, requireRemarksField, extraUpdate
     });
 
     logAudit({ req, action: "update", module: "purchaseorder", recordId: id, newValue: { status: toStatus } });
+
+    await notifyStatusChange({
+      moduleKey: "purchaseorder",
+      entityType: "purchaseOrder",
+      entityId: id,
+      creatorId: po.created_by,
+      actorId: req.user?.id || null,
+      toStatus,
+      title: `Purchase Order ${data.poNumber} -> ${toStatus}`,
+      message: `Purchase order ${data.poNumber} moved from ${po.status} to ${toStatus}.`,
+      link: `/admin/procurement/purchase-orders/view/${id}`,
+    });
 
     return { data };
   } catch (error) {

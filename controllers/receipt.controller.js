@@ -1,6 +1,7 @@
 const supabase = require("../lib/supabaseClient");
 const { isValidId, withMongoId, deriveInitials } = require("../lib/helpers");
 const { logAudit } = require("../lib/audit");
+const { notifyStaff } = require("../lib/notify");
 
 const SELECT = `
   id, receiptNumber:receipt_number, amount, paymentDate:payment_date, mode, referenceNumber:reference_number, notes,
@@ -36,10 +37,11 @@ exports.createReceipt = async (req, res) => {
       return res.status(404).json({ success: false, message: "Company not found" });
     }
 
+    let existingInvoice = null;
     if (invoiceId) {
       const { data: invoice } = await supabase
         .from("invoices")
-        .select("id, status, grand_total, amount_paid, party_id")
+        .select("id, status, grand_total, amount_paid, party_id, created_by, invoice_number")
         .eq("id", invoiceId)
         .eq("is_delete", false)
         .maybeSingle();
@@ -56,6 +58,7 @@ exports.createReceipt = async (req, res) => {
       if (Number(amount) > remaining) {
         return res.status(400).json({ success: false, message: `Cannot receive ${amount} against an invoice with only ${remaining} outstanding` });
       }
+      existingInvoice = invoice;
     }
 
     const initials = deriveInitials(company.company_name);
@@ -76,6 +79,21 @@ exports.createReceipt = async (req, res) => {
 
     const { data: populated } = await supabase.from("receipts").select(SELECT).eq("id", receiptId).single();
     logAudit({ req, action: "create", module: "receipt", recordId: receiptId, newValue: populated });
+
+    // The invoice's status may have just been auto-updated to Partially
+    // Paid/Paid inside record_receipt_transactional -- notify its creator
+    // (never the amount-received flow itself, which has no approval gate).
+    if (existingInvoice && populated?.invoice?.status && populated.invoice.status !== existingInvoice.status) {
+      await notifyStaff({
+        recipientIds: [existingInvoice.created_by],
+        type: "invoice_status",
+        title: `Invoice ${existingInvoice.invoice_number} -> ${populated.invoice.status}`,
+        message: `Invoice ${existingInvoice.invoice_number} moved from ${existingInvoice.status} to ${populated.invoice.status} after receipt ${populated.receiptNumber}.`,
+        entityType: "invoice",
+        entityId: invoiceId,
+        link: `/admin/accounting/invoices/view/${invoiceId}`,
+      });
+    }
 
     res.status(201).json({ success: true, message: "Receipt recorded successfully", data: withMongoId(populated) });
   } catch (error) {

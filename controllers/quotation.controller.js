@@ -1,6 +1,7 @@
 const supabase = require("../lib/supabaseClient");
 const { isValidId, withMongoId, deriveInitials } = require("../lib/helpers");
 const { logAudit } = require("../lib/audit");
+const { notifyStatusChange } = require("../lib/notify");
 
 const SELECT = `
   id, quotationNumber:quotation_number, qty, size, specs, rateType:rate_type, rate, printingrate,
@@ -42,7 +43,7 @@ async function transition(req, res, { toStatus, requireRemarksField, extraUpdate
     if (!isValidId(id)) {
       return res.status(400).json({ success: false, message: "Invalid quotation ID" });
     }
-    const { data: quotation } = await supabase.from("quotations").select("id, status").eq("id", id).eq("is_delete", false).maybeSingle();
+    const { data: quotation } = await supabase.from("quotations").select("id, status, created_by").eq("id", id).eq("is_delete", false).maybeSingle();
     if (!quotation) {
       return res.status(404).json({ success: false, message: "Quotation not found" });
     }
@@ -79,6 +80,18 @@ async function transition(req, res, { toStatus, requireRemarksField, extraUpdate
     });
 
     logAudit({ req, action: "update", module: "quotation", recordId: id, newValue: { status: toStatus } });
+
+    await notifyStatusChange({
+      moduleKey: "quotation",
+      entityType: "quotation",
+      entityId: id,
+      creatorId: quotation.created_by,
+      actorId: req.user?.id || null,
+      toStatus,
+      title: `Quotation ${data.quotationNumber} -> ${toStatus}`,
+      message: `Quotation ${data.quotationNumber} moved from ${quotation.status} to ${toStatus}.`,
+      link: `/admin/quotation/view/${id}`,
+    });
 
     return { data };
   } catch (error) {

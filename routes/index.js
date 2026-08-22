@@ -31,6 +31,8 @@ const Grn = require("./grn.routes");
 const Invoice = require("./invoice.routes");
 const Receipt = require("./receipt.routes");
 const VendorPayment = require("./vendorPayment.routes");
+const Costing = require("./costing.routes");
+const Notification = require("./notification.routes");
 
 router.use("/company", CompanyRouter);
 router.use("/staff", StaffRouter);
@@ -62,4 +64,6 @@ router.use("/grns", Grn);
 router.use("/invoices", Invoice);
 router.use("/receipts", Receipt);
 router.use("/vendor-payments", VendorPayment);
+router.use("/costing", Costing);
+router.use("/notifications", Notification);
 module.exports = router;

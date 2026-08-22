@@ -1,6 +1,7 @@
 const supabase = require("../lib/supabaseClient");
 const { isValidId, withMongoId, deriveInitials, categoryForRole } = require("../lib/helpers");
 const { logAudit } = require("../lib/audit");
+const { notifyStaff } = require("../lib/notify");
 
 const SELECT = `
   id, grnNumber:grn_number, receivedDate:received_date, notes, createdAt:created_at,
@@ -31,7 +32,7 @@ exports.createGrn = async (req, res) => {
 
     const { data: po } = await supabase
       .from("purchase_orders")
-      .select("id, status, vendor_id, company_name_id")
+      .select("id, status, vendor_id, company_name_id, created_by, po_number")
       .eq("id", purchaseOrderId)
       .eq("is_delete", false)
       .maybeSingle();
@@ -102,6 +103,23 @@ exports.createGrn = async (req, res) => {
     const { data: grnItems } = await supabase.from("grn_items").select(ITEM_SELECT).eq("grn_id", grnId);
 
     logAudit({ req, action: "create", module: "grn", recordId: grnId, newValue: populated });
+
+    // create_grn_transactional auto-recalculates the PO's own status
+    // (Partially Received / Received) -- notify its creator that a GRN
+    // moved it, the same system-derived-status pattern as receipts on
+    // invoices above.
+    const { data: poAfter } = await supabase.from("purchase_orders").select("status").eq("id", purchaseOrderId).maybeSingle();
+    if (poAfter && poAfter.status !== po.status) {
+      await notifyStaff({
+        recipientIds: [po.created_by],
+        type: "purchaseorder_status",
+        title: `Purchase Order ${po.po_number} -> ${poAfter.status}`,
+        message: `Purchase order ${po.po_number} moved from ${po.status} to ${poAfter.status} after GRN ${populated.grnNumber}.`,
+        entityType: "purchaseOrder",
+        entityId: purchaseOrderId,
+        link: `/admin/procurement/purchase-orders/view/${purchaseOrderId}`,
+      });
+    }
 
     res.status(201).json({ success: true, message: "GRN posted successfully", data: withMongoId({ ...populated, items: grnItems || [] }) });
   } catch (error) {

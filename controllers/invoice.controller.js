@@ -1,6 +1,7 @@
 const supabase = require("../lib/supabaseClient");
 const { isValidId, withMongoId, deriveInitials } = require("../lib/helpers");
 const { logAudit } = require("../lib/audit");
+const { notifyStatusChange } = require("../lib/notify");
 
 const SELECT = `
   id, invoiceNumber:invoice_number, invoiceDate:invoice_date, dueDate:due_date, gstType:gst_type,
@@ -43,7 +44,7 @@ async function transition(req, res, { toStatus, requireRemarksField } = {}) {
     if (!isValidId(id)) {
       return res.status(400).json({ success: false, message: "Invalid invoice ID" });
     }
-    const { data: invoice } = await supabase.from("invoices").select("id, status").eq("id", id).eq("is_delete", false).maybeSingle();
+    const { data: invoice } = await supabase.from("invoices").select("id, status, created_by").eq("id", id).eq("is_delete", false).maybeSingle();
     if (!invoice) {
       return res.status(404).json({ success: false, message: "Invoice not found" });
     }
@@ -72,6 +73,18 @@ async function transition(req, res, { toStatus, requireRemarksField } = {}) {
     });
 
     logAudit({ req, action: "update", module: "invoice", recordId: id, newValue: { status: toStatus } });
+
+    await notifyStatusChange({
+      moduleKey: "invoice",
+      entityType: "invoice",
+      entityId: id,
+      creatorId: invoice.created_by,
+      actorId: req.user?.id || null,
+      toStatus,
+      title: `Invoice ${data.invoiceNumber} -> ${toStatus}`,
+      message: `Invoice ${data.invoiceNumber} moved from ${invoice.status} to ${toStatus}.`,
+      link: `/admin/accounting/invoices/view/${id}`,
+    });
 
     return { data };
   } catch (error) {
