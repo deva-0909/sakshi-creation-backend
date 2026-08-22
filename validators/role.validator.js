@@ -5,6 +5,7 @@ const { z } = require("zod");
 const createRoleSchema = z.object({
   roleName: z.string().trim().min(1, "Role name is required and must be a non-empty string"),
   permissions: z.record(z.any()).optional(),
+  status: z.string().optional(),
 });
 
 const updateRoleSchema = createRoleSchema.partial();

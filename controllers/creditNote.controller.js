@@ -44,9 +44,14 @@ exports.createCreditNote = async (req, res) => {
     const { data: company } = await supabase.from("company_names").select("id, company_name").eq("id", invoice.company_name_id).maybeSingle();
     const initials = deriveInitials(company?.company_name);
 
-    const { data: seq, error: seqErr } = await supabase.rpc("increment_sequence_simple", { p_type: "credit_note" });
-    if (seqErr) throw seqErr;
-    const creditNoteNumber = `CN-${initials}-${100 + Number(seq)}`;
+    // Module 10: numbering format (prefix/padding/offset) now lives in the
+    // numbering_configs table -- next_document_number() reads it instead of
+    // this controller building the string by hand.
+    const { data: creditNoteNumber, error: numErr } = await supabase.rpc("next_document_number", {
+      p_doc_type: "credit_note",
+      p_initials: initials,
+    });
+    if (numErr) throw numErr;
 
     const { data: created, error } = await supabase
       .from("credit_notes")

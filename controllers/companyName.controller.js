@@ -1,7 +1,7 @@
 const supabase = require("../lib/supabaseClient");
 const { isValidId, withMongoId } = require("../lib/helpers");
 
-const SELECT_BASIC = "id, companyName:company_name, avatar, state, createdAt:created_at, updatedAt:updated_at";
+const SELECT_BASIC = "id, companyName:company_name, avatar, state, status, createdAt:created_at, updatedAt:updated_at";
 
 exports.createCompanyName = async (req, res) => {
   try {
@@ -32,6 +32,7 @@ exports.createCompanyName = async (req, res) => {
         company_name: req.body.companyName,
         avatar: req.body.avatar || null,
         state: req.body.state || null,
+        status: req.body.status || "Active",
         created_by: req.user?.id || null,
       })
       .select(SELECT_BASIC)
@@ -56,7 +57,7 @@ exports.createCompanyName = async (req, res) => {
 
 exports.getAllCompanyNames = async (req, res) => {
   try {
-    const { page, limit, search } = req.query;
+    const { page, limit, search, status } = req.query;
     const paginate = page !== undefined || limit !== undefined;
 
     let query = supabase
@@ -65,6 +66,7 @@ exports.getAllCompanyNames = async (req, res) => {
       .eq("is_delete", false)
       .order("created_at", { ascending: false });
 
+    if (status) query = query.eq("status", status);
     if (search && String(search).trim()) {
       query = query.ilike("company_name", `%${String(search).trim()}%`);
     }
@@ -174,6 +176,7 @@ exports.updateCompanyName = async (req, res) => {
       ...(req.body.companyName && { company_name: req.body.companyName }),
       ...(req.body.avatar && { avatar: req.body.avatar }),
       ...(req.body.state !== undefined && { state: req.body.state }),
+      ...(req.body.status !== undefined && { status: req.body.status }),
       updated_at: new Date().toISOString(),
       updated_by: req.user?.id || null,
     };

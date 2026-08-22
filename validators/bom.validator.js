@@ -16,6 +16,9 @@ const createBomSchema = z.object({
   material: idField,
   quantityPerUnit: numericField,
   unit: z.string().optional(),
+  // Module 10: optional UOM master link, alongside the existing free-text
+  // `unit` field (kept for backward compatibility).
+  uom: idField.optional(),
   notes: z.string().optional(),
   // Module 8: lets the wastage report compare actual wastage against a
   // plan instead of floating with nothing to measure it against.

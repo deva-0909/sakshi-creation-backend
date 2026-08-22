@@ -7,7 +7,7 @@ const csv = require("csv-parser");
 const BULK_TEMPLATE_HEADERS = ["materialName", "materialSize", "materialGSM"];
 
 const SELECT =
-  "id, materialName:material_name, materialSize:material_size, materialGSM:material_gsm, createdAt:created_at, updatedAt:updated_at";
+  "id, materialName:material_name, materialSize:material_size, materialGSM:material_gsm, status, uom:uom_id(id, name, symbol), createdAt:created_at, updatedAt:updated_at";
 
 exports.createMaterial = async (req, res) => {
   try {
@@ -39,6 +39,8 @@ exports.createMaterial = async (req, res) => {
         material_name: req.body.materialName,
         material_size: req.body.materialSize,
         material_gsm: req.body.materialGSM,
+        uom_id: req.body.uom || null,
+        status: req.body.status || "Active",
         created_by: req.user?.id || null,
       })
       .select(SELECT)
@@ -55,11 +57,12 @@ exports.createMaterial = async (req, res) => {
 
 exports.getAllMaterials = async (req, res) => {
   try {
-    const { page, limit, search } = req.query;
+    const { page, limit, search, status } = req.query;
     const paginate = page !== undefined || limit !== undefined;
 
     let query = supabase.from("materials").select(SELECT, { count: "exact" }).eq("is_delete", false);
 
+    if (status) query = query.eq("status", status);
     if (search && String(search).trim()) {
       query = query.ilike("material_name", `%${String(search).trim()}%`);
     }
@@ -131,6 +134,8 @@ exports.updateMaterial = async (req, res) => {
       ...(req.body.materialName && { material_name: req.body.materialName }),
       ...(req.body.materialSize && { material_size: req.body.materialSize }),
       ...(req.body.materialGSM && { material_gsm: req.body.materialGSM }),
+      ...(req.body.uom !== undefined && { uom_id: req.body.uom || null }),
+      ...(req.body.status !== undefined && { status: req.body.status }),
       updated_at: new Date().toISOString(),
       updated_by: req.user?.id || null,
     };

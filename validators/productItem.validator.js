@@ -4,10 +4,14 @@ const { z } = require("zod");
 // controller.
 const createProductItemSchema = z.object({
   itemName: z.string().trim().min(1, "Item name is required"),
+  status: z.string().optional(),
 });
 
-// Update: the controller re-requires itemName, so this is not a
-// .partial() of the create schema.
-const updateProductItemSchema = createProductItemSchema;
+// Module 10: the controller now also accepts a status-only update (e.g.
+// deactivating an item without renaming it), so itemName is optional here.
+const updateProductItemSchema = z.object({
+  itemName: z.string().trim().min(1).optional(),
+  status: z.string().optional(),
+});
 
 module.exports = { createProductItemSchema, updateProductItemSchema };

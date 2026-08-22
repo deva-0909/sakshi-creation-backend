@@ -19,6 +19,10 @@ const createStaffSchema = z.object({
   companyName: z.union([z.string(), z.number()]),
   aadharFiles: z.array(z.any()).min(1, "At least one Aadhar file is required"),
   addressFiles: z.array(z.any()).optional(),
+  // Module 10: optional Branch/Designation master links -- neither concept
+  // existed before this module.
+  branch: z.union([z.string(), z.number()]).optional().nullable(),
+  designation: z.union([z.string(), z.number()]).optional().nullable(),
 });
 
 // Update payloads are partial — any subset of the above fields, still

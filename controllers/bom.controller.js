@@ -6,12 +6,13 @@ const SELECT = `
   id, quantityPerUnit:quantity_per_unit, unit, notes, expectedWastagePercent:expected_wastage_percent,
   createdAt:created_at, updatedAt:updated_at,
   productItem:product_item_id(id, itemName:item_name),
-  material:material_id(id, materialName:material_name, materialSize:material_size, materialGSM:material_gsm)
+  material:material_id(id, materialName:material_name, materialSize:material_size, materialGSM:material_gsm),
+  uom:uom_id(id, name, symbol)
 `;
 
 exports.createBomLine = async (req, res) => {
   try {
-    const { productItem, material, quantityPerUnit, unit, notes, expectedWastagePercent } = req.body;
+    const { productItem, material, quantityPerUnit, unit, uom, notes, expectedWastagePercent } = req.body;
     if (!isValidId(productItem) || !isValidId(material)) {
       return res.status(400).json({ success: false, message: "Invalid ID format for productItem or material" });
     }
@@ -41,6 +42,7 @@ exports.createBomLine = async (req, res) => {
         material_id: material,
         quantity_per_unit: parseFloat(quantityPerUnit),
         unit: unit || "sheet",
+        uom_id: uom || null,
         notes: notes || null,
         expected_wastage_percent: expectedWastagePercent !== undefined ? parseFloat(expectedWastagePercent) : null,
         created_by: req.user?.id || null,
@@ -82,10 +84,11 @@ exports.updateBomLine = async (req, res) => {
     if (!isValidId(id)) {
       return res.status(400).json({ success: false, message: "Invalid recipe line ID" });
     }
-    const { quantityPerUnit, unit, notes, expectedWastagePercent } = req.body;
+    const { quantityPerUnit, unit, uom, notes, expectedWastagePercent } = req.body;
     const updateData = {
       ...(quantityPerUnit !== undefined && { quantity_per_unit: parseFloat(quantityPerUnit) }),
       ...(unit !== undefined && { unit }),
+      ...(uom !== undefined && { uom_id: uom || null }),
       ...(notes !== undefined && { notes }),
       ...(expectedWastagePercent !== undefined && { expected_wastage_percent: parseFloat(expectedWastagePercent) }),
       updated_at: new Date().toISOString(),

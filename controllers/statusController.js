@@ -1,7 +1,13 @@
 const supabase = require("../lib/supabaseClient");
 const { isValidId, withMongoId } = require("../lib/helpers");
 
-const SUPPORTED_TYPES = ["order"];
+// Module 10: this table/controller was originally wired for order statuses
+// only; it's now the generalized status-vocabulary mechanism behind the
+// activation/deactivation toggle for these masters too (see
+// remediation-patch-plan.md's activation-pattern decision). Each of these
+// types was seeded with an Active/Inactive pair; admins can add more (e.g.
+// "On Hold") through this same endpoint family.
+const SUPPORTED_TYPES = ["order", "vendor", "material", "company_name", "product_item", "role", "machine", "uom", "tax_rate", "branch", "designation"];
 
 const SELECT = `
   id, name, orderNumber:order_number, isDefault:is_default, isActive:is_active, color, description,

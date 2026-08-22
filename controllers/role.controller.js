@@ -1,7 +1,7 @@
 const supabase = require("../lib/supabaseClient");
 const { withMongoId } = require("../lib/helpers");
 
-const SELECT = "id, roleName:role_name, isDelete:is_delete, totalUser:total_user, permissions, createdAt:created_at";
+const SELECT = "id, roleName:role_name, isDelete:is_delete, totalUser:total_user, permissions, status, createdAt:created_at";
 
 exports.createRole = async (req, res) => {
   const { roleName, permissions } = req.body;
@@ -30,6 +30,7 @@ exports.createRole = async (req, res) => {
         permissions: permissions || {},
         is_delete: false,
         total_user: 0,
+        status: req.body.status || "Active",
         created_by: req.user?.id || null,
       })
       .select(SELECT)
@@ -82,7 +83,7 @@ exports.getRoleById = async (req, res) => {
 };
 
 exports.updateRoleById = async (req, res) => {
-  const { roleName, permissions } = req.body;
+  const { roleName, permissions, status } = req.body;
   try {
     const { data: role } = await supabase
       .from("roles")
@@ -113,6 +114,7 @@ exports.updateRoleById = async (req, res) => {
     const updateData = {
       ...(roleName && { role_name: roleName }),
       ...(permissions && { permissions }),
+      ...(status !== undefined && { status }),
       updated_at: new Date().toISOString(),
       updated_by: req.user?.id || null,
     };

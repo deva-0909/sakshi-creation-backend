@@ -47,9 +47,12 @@ exports.createDebitNote = async (req, res) => {
     }
 
     const initials = deriveInitials(company.company_name);
-    const { data: seq, error: seqErr } = await supabase.rpc("increment_sequence_simple", { p_type: "debit_note" });
-    if (seqErr) throw seqErr;
-    const debitNoteNumber = `DN-${initials}-${100 + Number(seq)}`;
+    // Module 10: numbering format now lives in numbering_configs.
+    const { data: debitNoteNumber, error: numErr } = await supabase.rpc("next_document_number", {
+      p_doc_type: "debit_note",
+      p_initials: initials,
+    });
+    if (numErr) throw numErr;
 
     const { data: created, error } = await supabase
       .from("debit_notes")

@@ -7,7 +7,7 @@ const csv = require("csv-parser");
 // §77: the CSV template a bulk-import file must match.
 const BULK_TEMPLATE_HEADERS = ["itemName"];
 
-const SELECT = "id, itemName:item_name, createdAt:created_at, updatedAt:updated_at";
+const SELECT = "id, itemName:item_name, status, createdAt:created_at, updatedAt:updated_at";
 
 exports.createProductItem = async (req, res) => {
   try {
@@ -29,7 +29,7 @@ exports.createProductItem = async (req, res) => {
 
     const { data, error } = await supabase
       .from("product_items")
-      .insert({ item_name: itemName, created_by: req.user?.id || null })
+      .insert({ item_name: itemName, status: req.body.status || "Active", created_by: req.user?.id || null })
       .select(SELECT)
       .single();
 
@@ -44,7 +44,7 @@ exports.createProductItem = async (req, res) => {
 
 exports.getAllProductItems = async (req, res) => {
   try {
-    const { page, limit, search } = req.query;
+    const { page, limit, search, status } = req.query;
     const paginate = page !== undefined || limit !== undefined;
 
     let query = supabase
@@ -53,6 +53,7 @@ exports.getAllProductItems = async (req, res) => {
       .eq("is_delete", false)
       .order("created_at", { ascending: false });
 
+    if (status) query = query.eq("status", status);
     if (search && String(search).trim()) {
       query = query.ilike("item_name", `%${String(search).trim()}%`);
     }
@@ -109,17 +110,22 @@ exports.getProductItemById = async (req, res) => {
 exports.updateProductItem = async (req, res) => {
   try {
     const { id } = req.params;
-    const { itemName } = req.body;
+    const { itemName, status } = req.body;
     if (!isValidId(id)) {
       return res.status(400).json({ success: false, message: "Invalid product item ID" });
     }
-    if (!itemName) {
+    if (!itemName && status === undefined) {
       return res.status(400).json({ success: false, message: "Item name is required" });
     }
 
     const { data, error } = await supabase
       .from("product_items")
-      .update({ item_name: itemName, updated_at: new Date().toISOString(), updated_by: req.user?.id || null })
+      .update({
+        ...(itemName && { item_name: itemName }),
+        ...(status !== undefined && { status }),
+        updated_at: new Date().toISOString(),
+        updated_by: req.user?.id || null,
+      })
       .eq("id", id)
       .select(SELECT)
       .maybeSingle();

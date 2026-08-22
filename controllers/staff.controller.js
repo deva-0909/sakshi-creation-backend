@@ -16,8 +16,11 @@ const SELECT_NO_PASSWORD = `
   id, firstName:first_name, lastName:last_name, email, mobileNo:mobile_no, whatsappNo:whatsapp_no,
   address, aadharNo:aadhar_no, joiningDate:joining_date, birthDay:birth_day, status,
   aadharFiles:aadhar_files, addressFiles:address_files, createdAt:created_at, updatedAt:updated_at,
+  lastLoginAt:last_login_at,
   role:role_id(id, roleName:role_name, isDelete:is_delete, totalUser:total_user, permissions),
-  CompanyName:company_name_id(id, companyName:company_name, avatar)
+  CompanyName:company_name_id(id, companyName:company_name, avatar),
+  branch:branch_id(id, branchName:branch_name),
+  designation:designation_id(id, designationName:designation_name)
 `;
 
 exports.createStaff = async (req, res) => {
@@ -87,6 +90,8 @@ exports.createStaff = async (req, res) => {
         role_id: req.body.role,
         aadhar_files: req.body.aadharFiles,
         address_files: req.body.addressFiles || [],
+        branch_id: req.body.branch || null,
+        designation_id: req.body.designation || null,
         created_by: req.user?.id || null,
       })
       .select("id")
@@ -235,6 +240,8 @@ exports.updateStaff = async (req, res) => {
       ...(req.body.aadharFiles && { aadhar_files: req.body.aadharFiles }),
       ...(req.body.addressFiles && { address_files: req.body.addressFiles }),
       ...(req.body.status !== undefined && { status: req.body.status }),
+      ...(req.body.branch !== undefined && { branch_id: req.body.branch || null }),
+      ...(req.body.designation !== undefined && { designation_id: req.body.designation || null }),
       updated_at: new Date().toISOString(),
       updated_by: req.user?.id || null,
     };
@@ -324,6 +331,23 @@ exports.deleteStaff = async (req, res) => {
   }
 };
 
+// Module 10: best-effort login history, same fire-and-forget convention as
+// logAudit()/notifyStaff() -- never blocks or fails the login request.
+function recordLoginAttempt({ staffId, attemptedEmail, success, failureReason, req }) {
+  supabase
+    .from("login_history")
+    .insert({
+      staff_id: staffId || null,
+      attempted_email: attemptedEmail || null,
+      success,
+      failure_reason: failureReason || null,
+      ip_address: req.ip || req.headers?.["x-forwarded-for"] || null,
+      user_agent: req.headers?.["user-agent"] || null,
+    })
+    .then(() => {})
+    .catch(() => {});
+}
+
 exports.loginStaff = async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -342,14 +366,17 @@ exports.loginStaff = async (req, res) => {
 
     if (error) throw error;
     if (!staff) {
+      recordLoginAttempt({ attemptedEmail: email.toLowerCase(), success: false, failureReason: "No matching account", req });
       return res.status(401).json({ success: false, message: "Invalid email or password" });
     }
     if (!staff.status) {
+      recordLoginAttempt({ staffId: staff.id, attemptedEmail: staff.email, success: false, failureReason: "Account inactive", req });
       return res.status(403).json({ success: false, message: "Account is inactive" });
     }
 
     const isMatch = await comparePassword(password, staff.password);
     if (!isMatch) {
+      recordLoginAttempt({ staffId: staff.id, attemptedEmail: staff.email, success: false, failureReason: "Wrong password", req });
       return res.status(401).json({ success: false, message: "Invalid email or password" });
     }
 
@@ -358,6 +385,9 @@ exports.loginStaff = async (req, res) => {
       process.env.JWT_SECRET,
       { expiresIn: "7d" }
     );
+
+    recordLoginAttempt({ staffId: staff.id, attemptedEmail: staff.email, success: true, req });
+    supabase.from("staff").update({ last_login_at: new Date().toISOString() }).eq("id", staff.id).then(() => {}).catch(() => {});
 
     res.status(200).json({
       success: true,
@@ -375,6 +405,39 @@ exports.loginStaff = async (req, res) => {
   } catch (error) {
     console.error("Error logging in staff:", error);
     res.status(500).json({ success: false, message: "Failed to login", error: error.message });
+  }
+};
+
+// Module 10: coarse "who logged in, when, success or failure" view --
+// complements audit_logs' field-level record diffs, which never covered
+// login/session activity. Gated on setup.staff.view permission (a
+// dedicated `useractivity` module key wasn't warranted for one read-only
+// listing endpoint).
+exports.getLoginHistory = async (req, res) => {
+  try {
+    const { staffId, success, page = 1, limit = 25 } = req.query;
+    let query = supabase
+      .from("login_history")
+      .select("id, staffId:staff_id(id, firstName:first_name, lastName:last_name, email), attemptedEmail:attempted_email, loginAt:login_at, success, failureReason:failure_reason, ipAddress:ip_address", { count: "exact" })
+      .order("login_at", { ascending: false });
+    if (staffId) query = query.eq("staff_id", staffId);
+    if (success !== undefined) query = query.eq("success", success === "true" || success === true);
+
+    const pageNum = parseInt(page, 10) || 1;
+    const limitNum = parseInt(limit, 10) || 25;
+    const from = (pageNum - 1) * limitNum;
+    query = query.range(from, from + limitNum - 1);
+
+    const { data, error, count } = await query;
+    if (error) throw error;
+
+    res.status(200).json({
+      success: true,
+      data: withMongoId(data),
+      pagination: { currentPage: pageNum, totalPages: Math.ceil(count / limitNum), totalCount: count, hasNext: from + data.length < count, hasPrev: pageNum > 1 },
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: "Error fetching login history: " + error.message });
   }
 };
 

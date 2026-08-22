@@ -11,15 +11,16 @@ const csv = require("csv-parser");
 const BULK_TEMPLATE_HEADERS = ["name", "contactNumber", "whatsappNumber", "gst", "address"];
 
 const SELECT =
-  "id, name, contactNumber:contact_number, whatsappNumber:whatsapp_number, gst, address, creditLimit:credit_limit, createdAt:created_at, updatedAt:updated_at, companyName:company_name_id(id, companyName:company_name)";
+  "id, name, contactNumber:contact_number, whatsappNumber:whatsapp_number, gst, address, creditLimit:credit_limit, status, createdAt:created_at, updatedAt:updated_at, companyName:company_name_id(id, companyName:company_name)";
 
 exports.getVendors = async (req, res) => {
   try {
-    const { page, limit, search } = req.query;
+    const { page, limit, search, status } = req.query;
     const paginate = page !== undefined || limit !== undefined;
 
     let query = supabase.from("vendors").select(SELECT, { count: "exact" }).eq("is_delete", false).order("created_at", { ascending: false });
 
+    if (status) query = query.eq("status", status);
     if (search && String(search).trim()) {
       query = query.ilike("name", `%${String(search).trim()}%`);
     }
@@ -67,7 +68,7 @@ exports.getVendorById = async (req, res) => {
 
 exports.createVendor = async (req, res) => {
   try {
-    const { companyName, name, contactNumber, whatsappNumber, gst, address, creditLimit } = req.body;
+    const { companyName, name, contactNumber, whatsappNumber, gst, address, creditLimit, status } = req.body;
     if (!companyName || !name || !contactNumber || !whatsappNumber || !address) {
       return res.status(400).json({ success: false, message: "All required fields must be provided" });
     }
@@ -89,6 +90,7 @@ exports.createVendor = async (req, res) => {
         gst: gst || "",
         address,
         credit_limit: creditLimit != null ? Number(creditLimit) : null,
+        status: status || "Active",
         created_by: req.user?.id || null,
       })
       .select(SELECT)
@@ -106,7 +108,7 @@ exports.createVendor = async (req, res) => {
 
 exports.updateVendor = async (req, res) => {
   try {
-    const { companyName, name, contactNumber, whatsappNumber, gst, address, creditLimit } = req.body;
+    const { companyName, name, contactNumber, whatsappNumber, gst, address, creditLimit, status } = req.body;
     if (companyName && !isValidId(companyName)) {
       return res.status(400).json({ success: false, message: "Invalid company ID" });
     }
@@ -127,6 +129,7 @@ exports.updateVendor = async (req, res) => {
       ...(gst !== undefined && { gst }),
       ...(address && { address }),
       ...(creditLimit !== undefined && { credit_limit: creditLimit === null ? null : Number(creditLimit) }),
+      ...(status !== undefined && { status }),
       updated_at: new Date().toISOString(),
       updated_by: req.user?.id || null,
     };

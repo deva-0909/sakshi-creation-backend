@@ -8,6 +8,7 @@ const createCompanyNameSchema = z.object({
   // Used by the invoicing module (Module 4) to auto-determine CGST/SGST
   // vs IGST by comparing this company's state to the billed party's state.
   state: z.string().trim().optional().nullable(),
+  status: z.string().optional(),
 });
 
 const updateCompanyNameSchema = createCompanyNameSchema.partial();
