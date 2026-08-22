@@ -33,6 +33,8 @@ const Receipt = require("./receipt.routes");
 const VendorPayment = require("./vendorPayment.routes");
 const Costing = require("./costing.routes");
 const Notification = require("./notification.routes");
+const Approval = require("./approval.routes");
+const Dashboard = require("./dashboard.routes");
 
 router.use("/company", CompanyRouter);
 router.use("/staff", StaffRouter);
@@ -66,4 +68,6 @@ router.use("/receipts", Receipt);
 router.use("/vendor-payments", VendorPayment);
 router.use("/costing", Costing);
 router.use("/notifications", Notification);
+router.use("/approvals", Approval);
+router.use("/dashboard", Dashboard);
 module.exports = router;

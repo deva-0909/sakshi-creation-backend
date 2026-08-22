@@ -79,6 +79,11 @@ async function computeCosting(jobCard) {
   return { materialCost, hasFullMaterialRateData, laborCost, overheadCost, totalCost, revenue, profit, marginPct, notes: costRow?.notes || null, materialLines };
 }
 
+// Exported so dashboard.controller.js can reuse the exact same
+// computation for the profitability roll-up widget rather than
+// duplicating the material/labor/overhead/revenue logic.
+exports.computeCosting = computeCosting;
+
 exports.getAllCosting = async (req, res) => {
   try {
     const { status, search, page, limit } = req.query;
