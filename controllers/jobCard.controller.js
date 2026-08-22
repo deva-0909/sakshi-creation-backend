@@ -1,6 +1,7 @@
 const supabase = require("../lib/supabaseClient");
-const { isValidId, withMongoId, deriveInitials, categoryForRole } = require("../lib/helpers");
+const { isValidId, withMongoId, deriveInitials, categoryForRole, categoryForStage } = require("../lib/helpers");
 const { logAudit } = require("../lib/audit");
+const { notifyStatusChange } = require("../lib/notify");
 
 const SELECT = `
   id, jobCardNumber:job_card_number, qty, priority, dueDate:due_date, status, currentStage:current_stage,
@@ -147,11 +148,28 @@ exports.updateJobCard = async (req, res) => {
 exports.advanceStage = async (req, res) => {
   try {
     const { id } = req.params;
-    const { stage, assignedTo, status, remarks, wastedSheet, machine } = req.body;
+    const {
+      stage,
+      assignedTo,
+      status,
+      remarks,
+      wastedSheet,
+      machine,
+      completedQty,
+      rejectedQty,
+      reworkQty,
+      qcResult,
+      defectCategory,
+      defectReason,
+      wastageReason,
+      wastageMaterial,
+      wastageForRole,
+      wastageForCompany,
+    } = req.body;
     if (!isValidId(id)) {
       return res.status(400).json({ success: false, message: "Invalid job card ID" });
     }
-    const { data: jobCard } = await supabase.from("job_cards").select("id, current_stage").eq("id", id).eq("is_delete", false).maybeSingle();
+    const { data: jobCard } = await supabase.from("job_cards").select("id, current_stage, order_id").eq("id", id).eq("is_delete", false).maybeSingle();
     if (!jobCard) {
       return res.status(404).json({ success: false, message: "Job card not found" });
     }
@@ -185,8 +203,19 @@ exports.advanceStage = async (req, res) => {
       assigned_to: assignedTo || null,
       status,
       remarks: remarks || null,
+      // wasted_sheet is set here as a plain number when no material is
+      // named (unchanged legacy behavior); when a material IS named, the
+      // wastage RPC below overwrites it atomically along with the
+      // material/reason, so a real inventory movement and the stage row
+      // never disagree about how much was wasted.
       wasted_sheet: wastedSheet !== undefined ? parseFloat(wastedSheet) : null,
       machine_id: machine || null,
+      completed_qty: completedQty !== undefined ? parseFloat(completedQty) : null,
+      rejected_qty: rejectedQty !== undefined ? parseFloat(rejectedQty) : null,
+      rework_qty: reworkQty !== undefined ? parseFloat(reworkQty) : null,
+      qc_result: stage === "QC" ? qcResult || null : null,
+      defect_category: stage === "QC" ? defectCategory || null : null,
+      defect_reason: stage === "QC" ? defectReason || null : null,
       updated_at: new Date().toISOString(),
       ...(status === "Done" && { completed_at: new Date().toISOString() }),
     };
@@ -206,12 +235,35 @@ exports.advanceStage = async (req, res) => {
       stageRow = data;
     }
 
+    // Wastage with a named material (Module 8): writes a real `wastage`
+    // inventory movement and, in the same transaction, stamps the
+    // material/reason onto the stage row -- so the two can never drift
+    // apart the way they could if this were two separate calls.
+    if (wastedSheet !== undefined && Number(wastedSheet) > 0 && wastageMaterial) {
+      const { data: order } = await supabase.from("orders").select("company_name_id").eq("id", jobCard.order_id).maybeSingle();
+      const { data: wastageInventoryId, error: wastageError } = await supabase.rpc("record_job_card_wastage_transactional", {
+        p_job_card_stage_id: stageRow.id,
+        p_material_id: wastageMaterial,
+        p_quantity: parseFloat(wastedSheet),
+        p_category: categoryForStage(stage),
+        p_company_name_id: order?.company_name_id || null,
+        p_for_role_id: wastageForRole,
+        p_for_company_id: wastageForCompany,
+        p_reason: wastageReason || null,
+        p_created_by: req.user?.id || null,
+      });
+      if (wastageError) throw wastageError;
+      stageRow.wastage_material_id = wastageMaterial;
+      stageRow.wastage_reason = wastageReason || null;
+      logAudit({ req, action: "create", module: "jobCardWastage", recordId: wastageInventoryId, newValue: { stage: stageRow.id, material: wastageMaterial, quantity: wastedSheet } });
+    }
+
     // The stage marker on job_cards only moves forward when a stage is
     // actually marked Done, so current_stage always reflects work that's
     // genuinely finished rather than whatever was last touched.
     const jobCardUpdate = { updated_at: new Date().toISOString(), updated_by: req.user?.id || null };
     if (status === "Done") {
-      const STAGE_ORDER = ["Designer", "Printer", "Binder", "Booklet Binder", "Delivery"];
+      const STAGE_ORDER = ["Designer", "Printer", "Binder", "Booklet Binder", "QC", "Delivery"];
       const nextIndex = STAGE_ORDER.indexOf(stage) + 1;
       jobCardUpdate.current_stage = nextIndex < STAGE_ORDER.length ? STAGE_ORDER[nextIndex] : "Done";
       if (jobCardUpdate.current_stage === "Done") jobCardUpdate.status = "Completed";
@@ -298,7 +350,13 @@ exports.getStageHistory = async (req, res) => {
     const { data, error } = await supabase
       .from("job_card_stages")
       .select(
-        "id, stage, status, startedAt:started_at, completedAt:completed_at, remarks, wastedSheet:wasted_sheet, assignedTo:assigned_to(id, firstName:first_name, lastName:last_name), machine:machine_id(id, machineName:machine_name, machineCode:machine_code)"
+        `id, stage, status, startedAt:started_at, completedAt:completed_at, remarks,
+         wastedSheet:wasted_sheet, wastageReason:wastage_reason,
+         wastageMaterial:wastage_material_id(id, materialName:material_name),
+         completedQty:completed_qty, rejectedQty:rejected_qty, reworkQty:rework_qty,
+         qcResult:qc_result, defectCategory:defect_category, defectReason:defect_reason,
+         assignedTo:assigned_to(id, firstName:first_name, lastName:last_name),
+         machine:machine_id(id, machineName:machine_name, machineCode:machine_code)`
       )
       .eq("job_card_id", id)
       .order("created_at", { ascending: true });
@@ -306,6 +364,74 @@ exports.getStageHistory = async (req, res) => {
     res.status(200).json({ success: true, data: withMongoId(data) });
   } catch (error) {
     res.status(500).json({ success: false, message: "Error fetching stage history: " + error.message });
+  }
+};
+
+// Module 8: aggregates recorded wastage (the material-linked entries from
+// advanceStage, see above) by material and by stage over a date range, so
+// wastage stops being a number that only ever appears one job card at a
+// time. Each material line also carries its BOM's expected_wastage_percent
+// where one exists, for reference alongside the actual total -- a true
+// weighted actual-vs-plan % would need assumptions about production
+// output this report deliberately avoids baking in silently.
+exports.getWastageReport = async (req, res) => {
+  try {
+    const { from, to, materialId, stage } = req.query;
+    let query = supabase
+      .from("job_card_stages")
+      .select("stage, wastedSheet:wasted_sheet, updatedAt:updated_at, wastageReason:wastage_reason, material:wastage_material_id(id, materialName:material_name)")
+      .not("wastage_material_id", "is", null)
+      .gt("wasted_sheet", 0);
+    if (stage) query = query.eq("stage", stage);
+    if (materialId) query = query.eq("wastage_material_id", materialId);
+    if (from) query = query.gte("updated_at", from);
+    if (to) query = query.lte("updated_at", to);
+
+    const { data: rows, error } = await query;
+    if (error) throw error;
+
+    const byMaterial = new Map();
+    for (const row of rows) {
+      const key = row.material?.id;
+      if (!key) continue;
+      if (!byMaterial.has(key)) {
+        byMaterial.set(key, { material: row.material, totalWasted: 0, entries: 0, byStage: {} });
+      }
+      const bucket = byMaterial.get(key);
+      bucket.totalWasted += Number(row.wastedSheet) || 0;
+      bucket.entries += 1;
+      bucket.byStage[row.stage] = (bucket.byStage[row.stage] || 0) + (Number(row.wastedSheet) || 0);
+    }
+
+    const materialIds = [...byMaterial.keys()];
+    let expectedByMaterial = {};
+    if (materialIds.length) {
+      const { data: bomRows } = await supabase
+        .from("product_boms")
+        .select("materialId:material_id, expectedWastagePercent:expected_wastage_percent")
+        .in("material_id", materialIds)
+        .eq("is_delete", false)
+        .not("expected_wastage_percent", "is", null);
+      (bomRows || []).forEach((b) => {
+        if (!expectedByMaterial[b.materialId]) expectedByMaterial[b.materialId] = [];
+        expectedByMaterial[b.materialId].push(Number(b.expectedWastagePercent));
+      });
+    }
+
+    const summary = [...byMaterial.values()].map((bucket) => {
+      const expected = expectedByMaterial[bucket.material.id];
+      return {
+        material: bucket.material,
+        totalWasted: bucket.totalWasted,
+        entries: bucket.entries,
+        byStage: bucket.byStage,
+        expectedWastagePercent: expected?.length ? Number((expected.reduce((a, b) => a + b, 0) / expected.length).toFixed(2)) : null,
+      };
+    });
+
+    res.status(200).json({ success: true, data: withMongoId(summary) });
+  } catch (error) {
+    res.status(500).json({ success: false, message: "Error building wastage report: " + error.message });
   }
 };
 

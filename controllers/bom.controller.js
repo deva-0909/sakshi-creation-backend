@@ -3,14 +3,15 @@ const { isValidId, withMongoId } = require("../lib/helpers");
 const { logAudit } = require("../lib/audit");
 
 const SELECT = `
-  id, quantityPerUnit:quantity_per_unit, unit, notes, createdAt:created_at, updatedAt:updated_at,
+  id, quantityPerUnit:quantity_per_unit, unit, notes, expectedWastagePercent:expected_wastage_percent,
+  createdAt:created_at, updatedAt:updated_at,
   productItem:product_item_id(id, itemName:item_name),
   material:material_id(id, materialName:material_name, materialSize:material_size, materialGSM:material_gsm)
 `;
 
 exports.createBomLine = async (req, res) => {
   try {
-    const { productItem, material, quantityPerUnit, unit, notes } = req.body;
+    const { productItem, material, quantityPerUnit, unit, notes, expectedWastagePercent } = req.body;
     if (!isValidId(productItem) || !isValidId(material)) {
       return res.status(400).json({ success: false, message: "Invalid ID format for productItem or material" });
     }
@@ -41,6 +42,7 @@ exports.createBomLine = async (req, res) => {
         quantity_per_unit: parseFloat(quantityPerUnit),
         unit: unit || "sheet",
         notes: notes || null,
+        expected_wastage_percent: expectedWastagePercent !== undefined ? parseFloat(expectedWastagePercent) : null,
         created_by: req.user?.id || null,
       })
       .select(SELECT)
@@ -80,11 +82,12 @@ exports.updateBomLine = async (req, res) => {
     if (!isValidId(id)) {
       return res.status(400).json({ success: false, message: "Invalid recipe line ID" });
     }
-    const { quantityPerUnit, unit, notes } = req.body;
+    const { quantityPerUnit, unit, notes, expectedWastagePercent } = req.body;
     const updateData = {
       ...(quantityPerUnit !== undefined && { quantity_per_unit: parseFloat(quantityPerUnit) }),
       ...(unit !== undefined && { unit }),
       ...(notes !== undefined && { notes }),
+      ...(expectedWastagePercent !== undefined && { expected_wastage_percent: parseFloat(expectedWastagePercent) }),
       updated_at: new Date().toISOString(),
       updated_by: req.user?.id || null,
     };
