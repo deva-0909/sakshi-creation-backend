@@ -35,6 +35,7 @@ const Costing = require("./costing.routes");
 const Notification = require("./notification.routes");
 const Approval = require("./approval.routes");
 const Dashboard = require("./dashboard.routes");
+const Opportunity = require("./opportunity.routes");
 
 router.use("/company", CompanyRouter);
 router.use("/staff", StaffRouter);
@@ -70,4 +71,5 @@ router.use("/costing", Costing);
 router.use("/notifications", Notification);
 router.use("/approvals", Approval);
 router.use("/dashboard", Dashboard);
+router.use("/opportunities", Opportunity);
 module.exports = router;
