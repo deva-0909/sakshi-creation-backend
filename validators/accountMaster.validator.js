@@ -2,6 +2,7 @@ const { z } = require("zod");
 
 const idField = z.union([z.string(), z.number()]);
 const emailField = z.string().trim().regex(/^\S+@\S+\.\S+$/, "Invalid email format").optional().or(z.literal(""));
+const numericField = z.union([z.string(), z.number()]).refine((v) => !isNaN(Number(v)), "Must be a number");
 
 // Structural validation only — companyName/createdBy existence checks stay
 // in the controller.
@@ -38,6 +39,10 @@ const createAccountMasterSchema = z.object({
   reference: z.string().trim().optional().nullable(),
   createdBy: idField,
   isRequestMode: z.boolean().optional(),
+  // Module 9: optional receivable credit limit -- null/omitted means no
+  // limit configured, so the "warn only" check (Section 7 of the design
+  // plan) never fires for a party that hasn't had one set.
+  creditLimit: numericField.refine((v) => Number(v) >= 0, "creditLimit must be zero or positive").optional(),
 });
 
 // Update: companyName + reasonToVisit are still required per the

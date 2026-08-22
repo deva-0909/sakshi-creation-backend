@@ -19,6 +19,24 @@ const createVendorPaymentSchema = z.object({
   notes: z.string().optional(),
 });
 
+// Module 9: post one vendor payment split across multiple purchase orders.
+const vendorPaymentAllocationSchema = z.object({
+  purchaseOrderId: idField,
+  amount: numericField.refine((v) => Number(v) > 0, "allocation amount must be a positive number"),
+});
+
+const createVendorPaymentAllocationSchema = z.object({
+  vendorId: idField,
+  companyName: idField,
+  amount: numericField.refine((v) => Number(v) > 0, "amount must be a positive number"),
+  paymentDate: z.string().min(1, "paymentDate is required"),
+  mode: z.enum(MODES),
+  referenceNumber: z.string().trim().optional(),
+  notes: z.string().optional(),
+  allocations: z.array(vendorPaymentAllocationSchema).min(1, "at least one allocation is required"),
+});
+
 module.exports = {
   createVendorPaymentSchema,
+  createVendorPaymentAllocationSchema,
 };

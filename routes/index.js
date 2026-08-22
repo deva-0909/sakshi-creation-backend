@@ -36,6 +36,9 @@ const Notification = require("./notification.routes");
 const Approval = require("./approval.routes");
 const Dashboard = require("./dashboard.routes");
 const Opportunity = require("./opportunity.routes");
+const CreditNote = require("./creditNote.routes");
+const DebitNote = require("./debitNote.routes");
+const Finance = require("./finance.routes");
 
 router.use("/company", CompanyRouter);
 router.use("/staff", StaffRouter);
@@ -72,4 +75,7 @@ router.use("/notifications", Notification);
 router.use("/approvals", Approval);
 router.use("/dashboard", Dashboard);
 router.use("/opportunities", Opportunity);
+router.use("/credit-notes", CreditNote);
+router.use("/debit-notes", DebitNote);
+router.use("/finance", Finance);
 module.exports = router;

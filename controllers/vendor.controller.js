@@ -11,7 +11,7 @@ const csv = require("csv-parser");
 const BULK_TEMPLATE_HEADERS = ["name", "contactNumber", "whatsappNumber", "gst", "address"];
 
 const SELECT =
-  "id, name, contactNumber:contact_number, whatsappNumber:whatsapp_number, gst, address, createdAt:created_at, updatedAt:updated_at, companyName:company_name_id(id, companyName:company_name)";
+  "id, name, contactNumber:contact_number, whatsappNumber:whatsapp_number, gst, address, creditLimit:credit_limit, createdAt:created_at, updatedAt:updated_at, companyName:company_name_id(id, companyName:company_name)";
 
 exports.getVendors = async (req, res) => {
   try {
@@ -67,7 +67,7 @@ exports.getVendorById = async (req, res) => {
 
 exports.createVendor = async (req, res) => {
   try {
-    const { companyName, name, contactNumber, whatsappNumber, gst, address } = req.body;
+    const { companyName, name, contactNumber, whatsappNumber, gst, address, creditLimit } = req.body;
     if (!companyName || !name || !contactNumber || !whatsappNumber || !address) {
       return res.status(400).json({ success: false, message: "All required fields must be provided" });
     }
@@ -88,6 +88,7 @@ exports.createVendor = async (req, res) => {
         whatsapp_number: whatsappNumber,
         gst: gst || "",
         address,
+        credit_limit: creditLimit != null ? Number(creditLimit) : null,
         created_by: req.user?.id || null,
       })
       .select(SELECT)
@@ -105,7 +106,7 @@ exports.createVendor = async (req, res) => {
 
 exports.updateVendor = async (req, res) => {
   try {
-    const { companyName, name, contactNumber, whatsappNumber, gst, address } = req.body;
+    const { companyName, name, contactNumber, whatsappNumber, gst, address, creditLimit } = req.body;
     if (companyName && !isValidId(companyName)) {
       return res.status(400).json({ success: false, message: "Invalid company ID" });
     }
@@ -125,6 +126,7 @@ exports.updateVendor = async (req, res) => {
       ...(whatsappNumber && { whatsapp_number: whatsappNumber }),
       ...(gst !== undefined && { gst }),
       ...(address && { address }),
+      ...(creditLimit !== undefined && { credit_limit: creditLimit === null ? null : Number(creditLimit) }),
       updated_at: new Date().toISOString(),
       updated_by: req.user?.id || null,
     };

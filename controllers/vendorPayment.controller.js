@@ -69,6 +69,90 @@ exports.createVendorPayment = async (req, res) => {
   }
 };
 
+// Module 9: post one vendor payment split across multiple purchase orders.
+// Unlike receipts, POs carry no amount_paid/status to update -- the vendor
+// ledger query (Section 3 of the design plan) sums vendor_payment_allocations
+// itself, so this handler only needs to validate and write.
+const ALLOCATION_SELECT = `
+  id, amountAllocated:amount_allocated,
+  purchaseOrder:purchase_order_id(id, poNumber:po_number, status)
+`;
+
+exports.createVendorPaymentAllocation = async (req, res) => {
+  try {
+    const { vendorId, companyName, amount, paymentDate, mode, referenceNumber, notes, allocations } = req.body;
+    if (!isValidId(vendorId) || !isValidId(companyName)) {
+      return res.status(400).json({ success: false, message: "Invalid vendorId or companyName" });
+    }
+    for (const a of allocations) {
+      if (!isValidId(a.purchaseOrderId)) {
+        return res.status(400).json({ success: false, message: `Invalid purchaseOrderId in allocations: ${a.purchaseOrderId}` });
+      }
+    }
+    const poIds = allocations.map((a) => String(a.purchaseOrderId));
+    if (new Set(poIds).size !== poIds.length) {
+      return res.status(400).json({ success: false, message: "Duplicate purchaseOrderId in allocations -- combine into a single line" });
+    }
+
+    const { data: vendor } = await supabase.from("vendors").select("id").eq("id", vendorId).eq("is_delete", false).maybeSingle();
+    if (!vendor) {
+      return res.status(404).json({ success: false, message: "Vendor not found" });
+    }
+    const { data: company } = await supabase.from("company_names").select("id, company_name").eq("id", companyName).maybeSingle();
+    if (!company) {
+      return res.status(404).json({ success: false, message: "Company not found" });
+    }
+
+    const { data: pos, error: poErr } = await supabase
+      .from("purchase_orders")
+      .select("id, vendor_id, po_number")
+      .in("id", poIds)
+      .eq("is_delete", false);
+    if (poErr) throw poErr;
+    if (!pos || pos.length !== poIds.length) {
+      return res.status(404).json({ success: false, message: "One or more purchase orders in the allocation were not found" });
+    }
+    for (const po of pos) {
+      if (String(po.vendor_id) !== String(vendorId)) {
+        return res.status(400).json({ success: false, message: `Purchase order ${po.po_number} does not belong to vendorId` });
+      }
+    }
+
+    const allocatedTotal = allocations.reduce((sum, a) => sum + Number(a.amount), 0);
+    if (allocatedTotal > Number(amount)) {
+      return res.status(400).json({ success: false, message: `Allocated total (${allocatedTotal}) exceeds payment amount (${amount})` });
+    }
+
+    const initials = deriveInitials(company.company_name);
+
+    const { data: paymentId, error } = await supabase.rpc("record_vendor_payment_allocation_transactional", {
+      p_vendor_id: vendorId,
+      p_company_name_id: companyName,
+      p_amount: Number(amount),
+      p_payment_date: paymentDate,
+      p_mode: mode,
+      p_reference_number: referenceNumber || null,
+      p_notes: notes || null,
+      p_created_by: req.user?.id || null,
+      p_initials: initials,
+      p_allocations: allocations.map((a) => ({ purchase_order_id: a.purchaseOrderId, amount: Number(a.amount) })),
+    });
+    if (error) throw error;
+
+    const { data: populated } = await supabase.from("vendor_payments").select(SELECT).eq("id", paymentId).single();
+    const { data: allocationRows } = await supabase.from("vendor_payment_allocations").select(ALLOCATION_SELECT).eq("vendor_payment_id", paymentId);
+    logAudit({ req, action: "create", module: "vendorpayment", recordId: paymentId, newValue: { ...populated, allocations: allocationRows } });
+
+    res.status(201).json({
+      success: true,
+      message: "Vendor payment recorded and allocated successfully",
+      data: withMongoId({ ...populated, allocations: allocationRows }),
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: "Error recording allocated vendor payment: " + error.message });
+  }
+};
+
 exports.getAllVendorPayments = async (req, res) => {
   try {
     const { vendorId, purchaseOrderId, search, page, limit } = req.query;

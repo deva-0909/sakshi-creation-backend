@@ -16,7 +16,7 @@ const BULK_TEMPLATE_HEADERS = [
 ];
 
 const PARTY_SELECT =
-  "id, companyName:company_name_id, partyName:party_name, ownerName:owner_name, ownerMobileNo:owner_mobile_no, ownerWhatsAppNo:owner_whatsapp_no, ownerEmail:owner_email, contactPerson:contact_person, personMobileNo:person_mobile_no, personWhatsAppNo:person_whatsapp_no, contactPersonEmail:contact_person_email, contactForPayment:contact_for_payment, contactMobileNo:contact_mobile_no, contactWhatsAppNo:contact_whatsapp_no, contactForPaymentEmail:contact_for_payment_email, GSTNo:gst_no, state, address, partyTag:party_tag, statusApproval:status_approval, createdAt:created_at, updatedAt:updated_at";
+  "id, companyName:company_name_id, partyName:party_name, ownerName:owner_name, ownerMobileNo:owner_mobile_no, ownerWhatsAppNo:owner_whatsapp_no, ownerEmail:owner_email, contactPerson:contact_person, personMobileNo:person_mobile_no, personWhatsAppNo:person_whatsapp_no, contactPersonEmail:contact_person_email, contactForPayment:contact_for_payment, contactMobileNo:contact_mobile_no, contactWhatsAppNo:contact_whatsapp_no, contactForPaymentEmail:contact_for_payment_email, GSTNo:gst_no, state, address, partyTag:party_tag, statusApproval:status_approval, creditLimit:credit_limit, createdAt:created_at, updatedAt:updated_at";
 
 const AM_SELECT = `
   id, reasonToVisit:reason_to_visit, reference, createdAt:created_at, updatedAt:updated_at,
@@ -94,6 +94,7 @@ exports.createAccountMaster = async (req, res) => {
         state: req.body.state || null,
         address: req.body.address,
         status_approval: req.body.isRequestMode ? "Pending" : "Approved",
+        credit_limit: req.body.creditLimit != null ? Number(req.body.creditLimit) : null,
       })
       .select("id")
       .single();
@@ -430,6 +431,7 @@ exports.updateAccountMaster = async (req, res) => {
         state: req.body.state,
         address: req.body.address,
         status_approval: req.body.statusApproval || currentParty.status_approval,
+        ...(req.body.creditLimit !== undefined && { credit_limit: req.body.creditLimit === null ? null : Number(req.body.creditLimit) }),
         updated_at: new Date().toISOString(),
       })
       .eq("id", am.party_id);
