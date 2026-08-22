@@ -28,6 +28,9 @@ const StockLedger = require("./stockLedger.routes");
 const Rfq = require("./rfq.routes");
 const PurchaseOrder = require("./purchaseOrder.routes");
 const Grn = require("./grn.routes");
+const Invoice = require("./invoice.routes");
+const Receipt = require("./receipt.routes");
+const VendorPayment = require("./vendorPayment.routes");
 
 router.use("/company", CompanyRouter);
 router.use("/staff", StaffRouter);
@@ -56,4 +59,7 @@ router.use("/stock-ledger", StockLedger);
 router.use("/rfqs", Rfq);
 router.use("/purchase-orders", PurchaseOrder);
 router.use("/grns", Grn);
+router.use("/invoices", Invoice);
+router.use("/receipts", Receipt);
+router.use("/vendor-payments", VendorPayment);
 module.exports = router;

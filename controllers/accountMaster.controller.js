@@ -11,12 +11,12 @@ const BULK_TEMPLATE_HEADERS = [
   "partyName", "ownerName", "ownerMobileNo", "ownerWhatsAppNo", "ownerEmail",
   "contactPerson", "personMobileNo", "personWhatsAppNo", "contactPersonEmail",
   "contactForPayment", "contactMobileNo", "contactWhatsAppNo", "contactForPaymentEmail",
-  "GSTNo", "unitNo", "marketName", "streetAddress", "landMark", "area", "pincode",
+  "GSTNo", "state", "unitNo", "marketName", "streetAddress", "landMark", "area", "pincode",
   "reasonToVisit", "reference", "isRequestMode",
 ];
 
 const PARTY_SELECT =
-  "id, companyName:company_name_id, partyName:party_name, ownerName:owner_name, ownerMobileNo:owner_mobile_no, ownerWhatsAppNo:owner_whatsapp_no, ownerEmail:owner_email, contactPerson:contact_person, personMobileNo:person_mobile_no, personWhatsAppNo:person_whatsapp_no, contactPersonEmail:contact_person_email, contactForPayment:contact_for_payment, contactMobileNo:contact_mobile_no, contactWhatsAppNo:contact_whatsapp_no, contactForPaymentEmail:contact_for_payment_email, GSTNo:gst_no, address, partyTag:party_tag, statusApproval:status_approval, createdAt:created_at, updatedAt:updated_at";
+  "id, companyName:company_name_id, partyName:party_name, ownerName:owner_name, ownerMobileNo:owner_mobile_no, ownerWhatsAppNo:owner_whatsapp_no, ownerEmail:owner_email, contactPerson:contact_person, personMobileNo:person_mobile_no, personWhatsAppNo:person_whatsapp_no, contactPersonEmail:contact_person_email, contactForPayment:contact_for_payment, contactMobileNo:contact_mobile_no, contactWhatsAppNo:contact_whatsapp_no, contactForPaymentEmail:contact_for_payment_email, GSTNo:gst_no, state, address, partyTag:party_tag, statusApproval:status_approval, createdAt:created_at, updatedAt:updated_at";
 
 const AM_SELECT = `
   id, reasonToVisit:reason_to_visit, reference, createdAt:created_at, updatedAt:updated_at,
@@ -91,6 +91,7 @@ exports.createAccountMaster = async (req, res) => {
         contact_whatsapp_no: req.body.contactWhatsAppNo,
         contact_for_payment_email: req.body.contactForPaymentEmail || null,
         gst_no: req.body.GSTNo || null,
+        state: req.body.state || null,
         address: req.body.address,
         status_approval: req.body.isRequestMode ? "Pending" : "Approved",
       })
@@ -258,6 +259,7 @@ exports.bulkCreateAccountMasters = async (req, res) => {
           contact_whatsapp_no: row.contactWhatsAppNo || null,
           contact_for_payment_email: row.contactForPaymentEmail || null,
           gst_no: row.GSTNo || null,
+          state: row.state || null,
           address: {
             unitNo: row.unitNo || null,
             marketName: row.marketName || null,
@@ -352,6 +354,7 @@ exports.getAccountMasterById = async (req, res) => {
       contactWhatsAppNo: am.party.contactWhatsAppNo,
       contactForPaymentEmail: am.party.contactForPaymentEmail || "",
       GSTNo: am.party.GSTNo,
+      state: am.party.state,
       address: {
         unitNo: am.party.address?.unitNo,
         marketName: am.party.address?.marketName,
@@ -424,6 +427,7 @@ exports.updateAccountMaster = async (req, res) => {
         contact_whatsapp_no: req.body.contactWhatsAppNo,
         contact_for_payment_email: req.body.contactForPaymentEmail || null,
         gst_no: req.body.GSTNo,
+        state: req.body.state,
         address: req.body.address,
         status_approval: req.body.statusApproval || currentParty.status_approval,
         updated_at: new Date().toISOString(),

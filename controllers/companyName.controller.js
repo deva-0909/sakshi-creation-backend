@@ -1,7 +1,7 @@
 const supabase = require("../lib/supabaseClient");
 const { isValidId, withMongoId } = require("../lib/helpers");
 
-const SELECT_BASIC = "id, companyName:company_name, avatar, createdAt:created_at, updatedAt:updated_at";
+const SELECT_BASIC = "id, companyName:company_name, avatar, state, createdAt:created_at, updatedAt:updated_at";
 
 exports.createCompanyName = async (req, res) => {
   try {
@@ -31,6 +31,7 @@ exports.createCompanyName = async (req, res) => {
       .insert({
         company_name: req.body.companyName,
         avatar: req.body.avatar || null,
+        state: req.body.state || null,
         created_by: req.user?.id || null,
       })
       .select(SELECT_BASIC)
@@ -172,6 +173,7 @@ exports.updateCompanyName = async (req, res) => {
     const updateData = {
       ...(req.body.companyName && { company_name: req.body.companyName }),
       ...(req.body.avatar && { avatar: req.body.avatar }),
+      ...(req.body.state !== undefined && { state: req.body.state }),
       updated_at: new Date().toISOString(),
       updated_by: req.user?.id || null,
     };

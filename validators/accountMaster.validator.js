@@ -30,6 +30,9 @@ const createAccountMasterSchema = z.object({
   contactWhatsAppNo: z.string().trim().optional().nullable(),
   contactForPaymentEmail: emailField,
   GSTNo: z.string().trim().optional().nullable(),
+  // Used by the invoicing module (Module 4) to auto-determine CGST/SGST
+  // vs IGST by comparing this party's state to the billing company's state.
+  state: z.string().trim().optional().nullable(),
   address: addressSchema,
   reasonToVisit: z.string().trim().min(1, "reasonToVisit is required"),
   reference: z.string().trim().optional().nullable(),
