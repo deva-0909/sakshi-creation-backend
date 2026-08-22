@@ -23,6 +23,8 @@ const ImportHistory = require("./importHistory.routes");
 const Quotation = require("./quotation.routes");
 const Bom = require("./bom.routes");
 const JobCard = require("./jobCard.routes");
+const Machine = require("./machine.routes");
+const StockLedger = require("./stockLedger.routes");
 
 router.use("/company", CompanyRouter);
 router.use("/staff", StaffRouter);
@@ -46,4 +48,6 @@ router.use("/import-history", ImportHistory);
 router.use("/quotations", Quotation);
 router.use("/boms", Bom);
 router.use("/job-cards", JobCard);
+router.use("/machines", Machine);
+router.use("/stock-ledger", StockLedger);
 module.exports = router;

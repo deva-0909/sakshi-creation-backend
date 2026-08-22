@@ -24,6 +24,9 @@ const advanceStageSchema = z.object({
   status: z.enum(["Pending", "In Progress", "Done"]),
   remarks: z.string().optional(),
   wastedSheet: numericField.optional(),
+  // Only meaningful for Printer/Binder/Booklet Binder -- the 3 stages that
+  // run on physical equipment (see machine.validator.js's category enum).
+  machine: idField.optional(),
 });
 
 const materialUsageSchema = z.object({

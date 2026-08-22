@@ -147,13 +147,29 @@ exports.updateJobCard = async (req, res) => {
 exports.advanceStage = async (req, res) => {
   try {
     const { id } = req.params;
-    const { stage, assignedTo, status, remarks, wastedSheet } = req.body;
+    const { stage, assignedTo, status, remarks, wastedSheet, machine } = req.body;
     if (!isValidId(id)) {
       return res.status(400).json({ success: false, message: "Invalid job card ID" });
     }
     const { data: jobCard } = await supabase.from("job_cards").select("id, current_stage").eq("id", id).eq("is_delete", false).maybeSingle();
     if (!jobCard) {
       return res.status(404).json({ success: false, message: "Job card not found" });
+    }
+
+    if (machine) {
+      // Machines only exist for Printer/Binder/Booklet Binder (see
+      // machine.validator.js) -- reject rather than silently drop a
+      // machine assigned to a stage that has no equipment of its own.
+      if (!["Printer", "Binder", "Booklet Binder"].includes(stage)) {
+        return res.status(400).json({ success: false, message: `A machine cannot be assigned to the ${stage} stage` });
+      }
+      const { data: machineRow } = await supabase.from("machines").select("id, category").eq("id", machine).eq("is_delete", false).maybeSingle();
+      if (!machineRow) {
+        return res.status(404).json({ success: false, message: "Machine not found" });
+      }
+      if (machineRow.category !== stage) {
+        return res.status(400).json({ success: false, message: `This machine is a ${machineRow.category} machine, not a ${stage} machine` });
+      }
     }
 
     const { data: existingStage } = await supabase
@@ -170,6 +186,7 @@ exports.advanceStage = async (req, res) => {
       status,
       remarks: remarks || null,
       wasted_sheet: wastedSheet !== undefined ? parseFloat(wastedSheet) : null,
+      machine_id: machine || null,
       updated_at: new Date().toISOString(),
       ...(status === "Done" && { completed_at: new Date().toISOString() }),
     };
@@ -281,7 +298,7 @@ exports.getStageHistory = async (req, res) => {
     const { data, error } = await supabase
       .from("job_card_stages")
       .select(
-        "id, stage, status, startedAt:started_at, completedAt:completed_at, remarks, wastedSheet:wasted_sheet, assignedTo:assigned_to(id, firstName:first_name, lastName:last_name)"
+        "id, stage, status, startedAt:started_at, completedAt:completed_at, remarks, wastedSheet:wasted_sheet, assignedTo:assigned_to(id, firstName:first_name, lastName:last_name), machine:machine_id(id, machineName:machine_name, machineCode:machine_code)"
       )
       .eq("job_card_id", id)
       .order("created_at", { ascending: true });
