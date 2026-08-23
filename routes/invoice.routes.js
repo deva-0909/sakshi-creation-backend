@@ -13,6 +13,7 @@ router.post("/", authorizePermission("invoice", "create"), validate(createInvoic
 router.get("/", InvoiceController.getAllInvoices);
 router.get("/:id", InvoiceController.getInvoiceById);
 router.get("/:id/history", InvoiceController.getInvoiceHistory);
+router.get("/:id/pdf", InvoiceController.getInvoicePdf);
 router.delete("/:id", authorizePermission("invoice", "delete"), InvoiceController.deleteInvoice);
 router.patch("/:id/issue", authorizePermission("invoice", "edit"), InvoiceController.issueInvoice);
 router.patch("/:id/cancel", authorizePermission("invoice", "edit"), InvoiceController.cancelInvoice);

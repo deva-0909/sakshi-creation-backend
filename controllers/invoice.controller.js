@@ -2,6 +2,7 @@ const supabase = require("../lib/supabaseClient");
 const { isValidId, withMongoId, deriveInitials } = require("../lib/helpers");
 const { logAudit } = require("../lib/audit");
 const { notifyStatusChange } = require("../lib/notify");
+const { buildInvoicePdf, streamPdf } = require("../lib/pdf");
 
 const SELECT = `
   id, invoiceNumber:invoice_number, invoiceDate:invoice_date, dueDate:due_date, gstType:gst_type,
@@ -230,6 +231,25 @@ exports.getInvoiceById = async (req, res) => {
     res.status(200).json({ success: true, data: withMongoId({ ...invoice, items: items || [] }) });
   } catch (error) {
     res.status(500).json({ success: false, message: "Error fetching invoice: " + error.message });
+  }
+};
+
+exports.getInvoicePdf = async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!isValidId(id)) {
+      return res.status(400).json({ success: false, message: "Invalid invoice ID" });
+    }
+    const { data: invoice, error } = await supabase.from("invoices").select(SELECT).eq("id", id).eq("is_delete", false).maybeSingle();
+    if (error) throw error;
+    if (!invoice) {
+      return res.status(404).json({ success: false, message: "Invoice not found" });
+    }
+    const { data: items } = await supabase.from("invoice_items").select(ITEM_SELECT).eq("invoice_id", id);
+    const doc = await buildInvoicePdf(invoice, items || []);
+    streamPdf(res, doc, `${invoice.invoiceNumber}.pdf`);
+  } catch (error) {
+    res.status(500).json({ success: false, message: "Error generating invoice PDF: " + error.message });
   }
 };
 

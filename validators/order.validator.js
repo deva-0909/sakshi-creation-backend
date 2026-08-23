@@ -36,6 +36,9 @@ const createOrderSchema = z.object({
   rateType: z.enum(["old", "new"]).optional(),
   isLamination: z.boolean().optional(),
   laminationType: z.enum(["Matte", "Gloss"]).optional(),
+  // Module 12: Sales Order commercial fields.
+  customerPoNumber: z.string().trim().optional(),
+  priority: z.enum(["Low", "Normal", "High", "Urgent"]).optional(),
 });
 
 // Update payloads are partial — any subset of the above fields, still

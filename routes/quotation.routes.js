@@ -29,5 +29,6 @@ router.patch("/:id/send", authorizePermission("quotation", "edit"), QuotationCon
 router.patch("/:id/respond", authorizePermission("quotation", "edit"), validate(respondQuotationSchema), QuotationController.respondQuotation);
 router.post("/:id/convert", authorizePermission("quotation", "create"), QuotationController.convertQuotation);
 router.get("/:id/history", QuotationController.getQuotationHistory);
+router.get("/:id/pdf", QuotationController.getQuotationPdf);
 
 module.exports = router;

@@ -2,6 +2,7 @@ const supabase = require("../lib/supabaseClient");
 const { isValidId, withMongoId, deriveInitials } = require("../lib/helpers");
 const { logAudit } = require("../lib/audit");
 const { notifyStatusChange } = require("../lib/notify");
+const { buildQuotationPdf, streamPdf } = require("../lib/pdf");
 
 const SELECT = `
   id, quotationNumber:quotation_number, qty, size, specs, rateType:rate_type, rate, printingrate,
@@ -205,6 +206,24 @@ exports.getQuotationById = async (req, res) => {
     res.status(200).json({ success: true, data: withMongoId(data) });
   } catch (error) {
     res.status(500).json({ success: false, message: "Error fetching quotation: " + error.message });
+  }
+};
+
+exports.getQuotationPdf = async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!isValidId(id)) {
+      return res.status(400).json({ success: false, message: "Invalid quotation ID" });
+    }
+    const { data: quotation, error } = await supabase.from("quotations").select(SELECT).eq("id", id).eq("is_delete", false).maybeSingle();
+    if (error) throw error;
+    if (!quotation) {
+      return res.status(404).json({ success: false, message: "Quotation not found" });
+    }
+    const doc = await buildQuotationPdf(quotation);
+    streamPdf(res, doc, `${quotation.quotationNumber}.pdf`);
+  } catch (error) {
+    res.status(500).json({ success: false, message: "Error generating quotation PDF: " + error.message });
   }
 };
 
