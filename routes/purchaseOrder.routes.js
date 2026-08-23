@@ -21,5 +21,6 @@ router.patch("/:id/approve", authorizePermission("purchaseorder", "approve"), Pu
 router.patch("/:id/reject", authorizePermission("purchaseorder", "approve"), PurchaseOrderController.rejectPurchaseOrder);
 router.patch("/:id/send", authorizePermission("purchaseorder", "edit"), PurchaseOrderController.sendPurchaseOrder);
 router.patch("/:id/cancel", authorizePermission("purchaseorder", "edit"), PurchaseOrderController.cancelPurchaseOrder);
+router.patch("/:id/acknowledge", authorizePermission("purchaseorder", "edit"), PurchaseOrderController.acknowledgePurchaseOrder);
 
 module.exports = router;

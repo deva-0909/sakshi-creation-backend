@@ -6,12 +6,19 @@ const { notifyStatusChange } = require("../lib/notify");
 const SELECT = `
   id, poNumber:po_number, status, expectedDate:expected_date, notes,
   approvedAt:approved_at, sentAt:sent_at, createdAt:created_at, updatedAt:updated_at,
+  acknowledgedAt:acknowledged_at,
   rfqId:rfq_id,
   vendor:vendor_id(id, name),
   companyName:company_name_id(id, companyName:company_name),
   approvedBy:approved_by(id, firstName:first_name, lastName:last_name),
+  acknowledgedBy:acknowledged_by(id, firstName:first_name, lastName:last_name),
   createdBy:created_by(id, firstName:first_name, lastName:last_name)
 `;
+
+// PO acknowledgement (Module 11 Part B) isn't part of the transition map --
+// "Sent" stays the terminal user-driven status; this is orthogonal
+// vendor-facing metadata that can be set any time after the PO went out.
+const ACKNOWLEDGEABLE_PO_STATUSES = ["Sent", "Partially Received", "Received"];
 
 const ITEM_SELECT = `
   id, quantityOrdered:quantity_ordered, rate, quantityReceived:quantity_received,
@@ -269,6 +276,36 @@ exports.sendPurchaseOrder = async (req, res) => {
 exports.cancelPurchaseOrder = async (req, res) => {
   const result = await transition(req, res, { toStatus: "Cancelled", requireRemarksField: "remarks" });
   if (result) res.status(200).json({ success: true, message: "Purchase order cancelled", data: withMongoId(result.data) });
+};
+
+exports.acknowledgePurchaseOrder = async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!isValidId(id)) {
+      return res.status(400).json({ success: false, message: "Invalid purchase order ID" });
+    }
+    const { data: po } = await supabase.from("purchase_orders").select("id, status, acknowledged_at").eq("id", id).eq("is_delete", false).maybeSingle();
+    if (!po) {
+      return res.status(404).json({ success: false, message: "Purchase order not found" });
+    }
+    if (!ACKNOWLEDGEABLE_PO_STATUSES.includes(po.status)) {
+      return res.status(400).json({ success: false, message: `Cannot acknowledge a purchase order in '${po.status}' status` });
+    }
+    if (po.acknowledged_at) {
+      return res.status(400).json({ success: false, message: "This purchase order has already been acknowledged" });
+    }
+    const { data, error } = await supabase
+      .from("purchase_orders")
+      .update({ acknowledged_at: new Date().toISOString(), acknowledged_by: req.user?.id || null, updated_at: new Date().toISOString() })
+      .eq("id", id)
+      .select(SELECT)
+      .single();
+    if (error) throw error;
+    logAudit({ req, action: "update", module: "purchaseorder", recordId: id, newValue: data });
+    res.status(200).json({ success: true, message: "Purchase order acknowledged", data: withMongoId(data) });
+  } catch (error) {
+    res.status(500).json({ success: false, message: "Error acknowledging purchase order: " + error.message });
+  }
 };
 
 // Selects one vendor's quote as the winner of a closed-out RFQ round and

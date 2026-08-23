@@ -5,6 +5,7 @@ const { notifyStaff } = require("../lib/notify");
 
 const SELECT = `
   id, grnNumber:grn_number, receivedDate:received_date, notes, createdAt:created_at,
+  vendorInvoiceNumber:vendor_invoice_number, vendorInvoiceDate:vendor_invoice_date,
   purchaseOrder:purchase_order_id(id, poNumber:po_number, status),
   vendor:vendor_id(id, name),
   companyName:company_name_id(id, companyName:company_name),
@@ -25,7 +26,7 @@ const RECEIVABLE_PO_STATUSES = ["Sent", "Partially Received"];
 
 exports.createGrn = async (req, res) => {
   try {
-    const { purchaseOrderId, receivedDate, forRole, forCompany, notes, items } = req.body;
+    const { purchaseOrderId, receivedDate, forRole, forCompany, notes, items, vendorInvoiceNumber, vendorInvoiceDate } = req.body;
     if (!isValidId(purchaseOrderId) || !isValidId(forRole) || !isValidId(forCompany)) {
       return res.status(400).json({ success: false, message: "Invalid purchaseOrderId, forRole, or forCompany" });
     }
@@ -96,6 +97,8 @@ exports.createGrn = async (req, res) => {
         rate: Number(i.rate),
         category,
       })),
+      p_vendor_invoice_number: vendorInvoiceNumber || null,
+      p_vendor_invoice_date: vendorInvoiceDate || null,
     });
     if (error) throw error;
 

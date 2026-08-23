@@ -28,4 +28,9 @@ router.post('/bulk', authorizePermission("setup", "create"), upload.single('file
 // §77: CSV template download for the bulk-import format above.
 router.get('/bulk/template', VendorController.downloadVendorTemplate);
 
+// Module 11 Part B: read-only, live-computed -- no dedicated permission
+// key, reuses view access to the vendor record itself.
+router.get('/:id/rate-history', VendorController.getVendorRateHistory);
+router.get('/:id/performance', VendorController.getVendorPerformance);
+
 module.exports = router;

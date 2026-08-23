@@ -17,6 +17,9 @@ const createGrnSchema = z.object({
   forCompany: idField,
   notes: z.string().optional(),
   items: z.array(grnItemSchema).min(1, "At least one received line is required"),
+  // Module 11 Part B: supplier invoice reference, both optional.
+  vendorInvoiceNumber: z.string().trim().optional(),
+  vendorInvoiceDate: z.string().optional(),
 });
 
 module.exports = { createGrnSchema };
