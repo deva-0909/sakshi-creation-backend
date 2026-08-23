@@ -11,5 +11,6 @@ router.use(authenticateToken);
 // getInventorySummary already exposes without a permission gate of its own.
 router.get("/material/:materialId", StockLedgerController.getMaterialLedger);
 router.get("/summary", StockLedgerController.getSummary);
+router.get("/availability/:materialId", StockLedgerController.getAvailability);
 
 module.exports = router;

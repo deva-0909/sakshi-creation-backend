@@ -111,3 +111,50 @@ exports.getSummary = async (req, res) => {
     res.status(500).json({ success: false, message: "Error fetching stock summary: " + error.message });
   }
 };
+
+// Module 11: On Hand vs Available for a single material. On Hand is the
+// same inward-minus-outward balance getMaterialLedger's closing balance
+// and getSummary already compute -- nothing new there. Available narrows
+// it by active Stock Reservations only; a reservation writes no
+// inventories row (see stockMovement.controller.js), so this is the only
+// place its effect surfaces.
+exports.getAvailability = async (req, res) => {
+  try {
+    const { materialId } = req.params;
+    const { category, warehouse, companyName } = req.query;
+    if (!isValidId(materialId)) {
+      return res.status(400).json({ success: false, message: "Invalid material ID" });
+    }
+    if (category && !VALID_CATEGORIES.includes(category)) {
+      return res.status(400).json({ success: false, message: "Invalid category" });
+    }
+
+    let invQuery = supabase.from("inventories").select("type, quantity").eq("material_id", materialId).eq("is_delete", false);
+    if (category) invQuery = invQuery.eq("category", category);
+    if (warehouse) invQuery = invQuery.eq("warehouse_id", warehouse);
+    if (companyName) invQuery = invQuery.eq("company_name_id", companyName);
+    const { data: invRows, error: invErr } = await invQuery;
+    if (invErr) throw invErr;
+    const onHand = (invRows || []).reduce((sum, r) => sum + (r.type === "inward" ? Number(r.quantity) : -Number(r.quantity)), 0);
+
+    let resQuery = supabase
+      .from("stock_reservations")
+      .select("quantity")
+      .eq("material_id", materialId)
+      .eq("status", "Active")
+      .eq("is_delete", false);
+    if (category) resQuery = resQuery.eq("category", category);
+    if (warehouse) resQuery = resQuery.eq("warehouse_id", warehouse);
+    if (companyName) resQuery = resQuery.eq("company_name_id", companyName);
+    const { data: resRows, error: resErr } = await resQuery;
+    if (resErr) throw resErr;
+    const reserved = (resRows || []).reduce((sum, r) => sum + Number(r.quantity), 0);
+
+    res.status(200).json({
+      success: true,
+      data: { materialId, onHand, reserved, available: onHand - reserved },
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: "Error fetching availability: " + error.message });
+  }
+};
