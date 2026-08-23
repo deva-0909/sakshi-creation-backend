@@ -27,6 +27,13 @@ async function latestRate(materialId) {
 // Computed live from current data on every call -- deliberately not
 // stored, the same choice made for Stock Ledger (Module 2), so there is
 // no second, driftable source of truth for a job's cost/profit.
+//
+// Module 14: extended from 3 cost buckets (material/labor/overhead) to
+// all 8 the scope doc asks for (+printing/binding/finishing/outsourcing/
+// delivery), per the user's explicit choice of "all 8" over the smaller
+// 7-bucket option offered. The 5 new buckets are manually entered on
+// job_card_costs (upsertJobCardCosts) exactly like labor/overhead already
+// were -- no new source of truth exists for them either.
 async function computeCosting(jobCard) {
   const { data: usageRows } = await supabase
     .from("job_card_material_usage")
@@ -50,13 +57,22 @@ async function computeCosting(jobCard) {
 
   const { data: costRow } = await supabase
     .from("job_card_costs")
-    .select("laborCost:labor_cost, overheadCost:overhead_cost, notes")
+    .select(
+      "laborCost:labor_cost, overheadCost:overhead_cost, printingCost:printing_cost, bindingCost:binding_cost, finishingCost:finishing_cost, outsourcingCost:outsourcing_cost, deliveryCost:delivery_cost, notes"
+    )
     .eq("job_card_id", jobCard.id)
     .maybeSingle();
   const laborCost = Number(costRow?.laborCost || 0);
   const overheadCost = Number(costRow?.overheadCost || 0);
+  const printingCost = Number(costRow?.printingCost || 0);
+  const bindingCost = Number(costRow?.bindingCost || 0);
+  const finishingCost = Number(costRow?.finishingCost || 0);
+  const outsourcingCost = Number(costRow?.outsourcingCost || 0);
+  const deliveryCost = Number(costRow?.deliveryCost || 0);
 
-  const totalCost = Number((materialCost + laborCost + overheadCost).toFixed(2));
+  const totalCost = Number(
+    (materialCost + laborCost + overheadCost + printingCost + bindingCost + finishingCost + outsourcingCost + deliveryCost).toFixed(2)
+  );
 
   // Revenue comes from Invoice.grand_total via the two-hop
   // job_card.order_id -> orders.id <- invoices.order_id join -- the
@@ -73,10 +89,51 @@ async function computeCosting(jobCard) {
     revenue = Number((invoices || []).reduce((sum, inv) => sum + Number(inv.grand_total), 0).toFixed(2));
   }
 
+  // Estimated cost = the linked Quotation's own costed total, when one
+  // exists for this job card's order (per the user's explicit choice).
+  // quotations.order_id is only ever populated once a quotation converts
+  // to an order, so at most one quotation can match; most recent wins if
+  // more than one somehow does.
+  let estimatedCost = null;
+  let costVariance = null;
+  if (jobCard.order?.id) {
+    const { data: quotation } = await supabase
+      .from("quotations")
+      .select("totalAmount:total_amount")
+      .eq("order_id", jobCard.order.id)
+      .eq("is_delete", false)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (quotation?.totalAmount !== null && quotation?.totalAmount !== undefined) {
+      estimatedCost = Number(quotation.totalAmount);
+      // Positive = actual cost ran over the quotation's costed total.
+      costVariance = Number((totalCost - estimatedCost).toFixed(2));
+    }
+  }
+
   const profit = Number((revenue - totalCost).toFixed(2));
   const marginPct = revenue > 0 ? Number(((profit / revenue) * 100).toFixed(2)) : null;
 
-  return { materialCost, hasFullMaterialRateData, laborCost, overheadCost, totalCost, revenue, profit, marginPct, notes: costRow?.notes || null, materialLines };
+  return {
+    materialCost,
+    hasFullMaterialRateData,
+    laborCost,
+    overheadCost,
+    printingCost,
+    bindingCost,
+    finishingCost,
+    outsourcingCost,
+    deliveryCost,
+    totalCost,
+    estimatedCost,
+    costVariance,
+    revenue,
+    profit,
+    marginPct,
+    notes: costRow?.notes || null,
+    materialLines,
+  };
 }
 
 // Exported so dashboard.controller.js can reuse the exact same
@@ -146,10 +203,14 @@ exports.getCostingByJobCard = async (req, res) => {
   }
 };
 
-// Manual labor/overhead entry -- upserts the one job_card_costs row per
-// job card. No wage/rate data exists anywhere in the system (confirmed
-// during design research), so this is recorded by hand rather than
-// derived, per the user's decision.
+// Manual cost-bucket entry -- upserts the one job_card_costs row per job
+// card. No wage/rate data exists anywhere in the system (confirmed during
+// design research), so this is recorded by hand rather than derived, per
+// the user's decision. Module 14 extended this from 2 buckets (labor/
+// overhead) to all 8; kept as the same endpoint/export name
+// (upsertLaborCost) since existing callers sending only laborCost/
+// overheadCost keep working unchanged -- the 5 new fields are just
+// additional optional body keys.
 exports.upsertLaborCost = async (req, res) => {
   try {
     const { jobCardId } = req.params;
@@ -161,7 +222,7 @@ exports.upsertLaborCost = async (req, res) => {
       return res.status(404).json({ success: false, message: "Job card not found" });
     }
 
-    const { laborCost, overheadCost, notes } = req.body;
+    const { laborCost, overheadCost, printingCost, bindingCost, finishingCost, outsourcingCost, deliveryCost, notes } = req.body;
     const { data: existing } = await supabase.from("job_card_costs").select("id").eq("job_card_id", jobCardId).maybeSingle();
 
     let result;
@@ -169,6 +230,11 @@ exports.upsertLaborCost = async (req, res) => {
       const payload = {
         ...(laborCost !== undefined && { labor_cost: Number(laborCost) }),
         ...(overheadCost !== undefined && { overhead_cost: Number(overheadCost) }),
+        ...(printingCost !== undefined && { printing_cost: Number(printingCost) }),
+        ...(bindingCost !== undefined && { binding_cost: Number(bindingCost) }),
+        ...(finishingCost !== undefined && { finishing_cost: Number(finishingCost) }),
+        ...(outsourcingCost !== undefined && { outsourcing_cost: Number(outsourcingCost) }),
+        ...(deliveryCost !== undefined && { delivery_cost: Number(deliveryCost) }),
         ...(notes !== undefined && { notes }),
         updated_by: req.user?.id || null,
         updated_at: new Date().toISOString(),
@@ -183,6 +249,11 @@ exports.upsertLaborCost = async (req, res) => {
           job_card_id: jobCardId,
           labor_cost: laborCost !== undefined ? Number(laborCost) : 0,
           overhead_cost: overheadCost !== undefined ? Number(overheadCost) : 0,
+          printing_cost: printingCost !== undefined ? Number(printingCost) : 0,
+          binding_cost: bindingCost !== undefined ? Number(bindingCost) : 0,
+          finishing_cost: finishingCost !== undefined ? Number(finishingCost) : 0,
+          outsourcing_cost: outsourcingCost !== undefined ? Number(outsourcingCost) : 0,
+          delivery_cost: deliveryCost !== undefined ? Number(deliveryCost) : 0,
           notes: notes || null,
           created_by: req.user?.id || null,
         })
@@ -192,8 +263,8 @@ exports.upsertLaborCost = async (req, res) => {
       result = data;
     }
 
-    res.status(200).json({ success: true, message: "Labor/overhead cost saved", data: withMongoId(result) });
+    res.status(200).json({ success: true, message: "Job card costs saved", data: withMongoId(result) });
   } catch (error) {
-    res.status(500).json({ success: false, message: "Error saving labor/overhead cost: " + error.message });
+    res.status(500).json({ success: false, message: "Error saving job card costs: " + error.message });
   }
 };

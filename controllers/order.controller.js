@@ -16,7 +16,7 @@ const ORDER_SELECT = `
   isFoil:is_foil, isPunching:is_punching, validproof, invoiceValidProof:invoice_valid_proof, reworkHistory:rework_history,
   issuedDate:issued_date, receivedDate:received_date, pagesPerBook:pages_per_book, rateBook:rate_book, totalAmount:total_amount,
   ratePerUnit:rate_per_unit, bindergst, deliveryDate:delivery_date, deliveryTime:delivery_time, isGst:is_gst,
-  customerPoNumber:customer_po_number, priority,
+  customerPoNumber:customer_po_number, priority, expectedDeliveryDate:expected_delivery_date,
   createdAt:created_at, updatedAt:updated_at,
   companyName:company_name_id(id, companyName:company_name),
   party:party_id(id, partyName:party_name, address, contactPerson:contact_person, personMobileNo:person_mobile_no, personWhatsAppNo:person_whatsapp_no, GSTNo:gst_no),
@@ -46,7 +46,7 @@ function processFileList(input) {
 
 exports.createOrder = async (req, res) => {
   try {
-    const { companyName, party, productItem, qty, remarks, filePaths, createdBy, isGst, size, rate, rateType, isLamination, laminationType, customerPoNumber, priority } = req.body;
+    const { companyName, party, productItem, qty, remarks, filePaths, createdBy, isGst, size, rate, rateType, isLamination, laminationType, customerPoNumber, priority, expectedDeliveryDate } = req.body;
 
     if (!companyName || !party || !productItem || !qty) {
       return res.status(400).json({ success: false, message: "Company, Party, Product Item, and Quantity are required" });
@@ -108,6 +108,7 @@ exports.createOrder = async (req, res) => {
       p_is_gst: isGst !== false,
       p_customer_po_number: customerPoNumber || null,
       p_priority: priority || null,
+      p_expected_delivery_date: expectedDeliveryDate || null,
     });
     if (error) throw error;
 
@@ -294,6 +295,7 @@ exports.updateOrder = async (req, res) => {
       ...(typeof body.isGst !== "undefined" && { is_gst: body.isGst }),
       ...(body.customerPoNumber !== undefined && { customer_po_number: body.customerPoNumber }),
       ...(body.priority !== undefined && { priority: body.priority }),
+      ...(body.expectedDeliveryDate !== undefined && { expected_delivery_date: body.expectedDeliveryDate }),
       updated_at: new Date().toISOString(),
       updated_by: req.user?.id || null,
     };

@@ -7,26 +7,42 @@ const SELECT = `
   id, opportunityNumber:opportunity_number, prospectName:prospect_name, contactPerson:contact_person,
   contactPhone:contact_phone, contactEmail:contact_email, estimatedValue:estimated_value, source, stage,
   notes, wonAt:won_at, lostAt:lost_at, lostReason:lost_reason, partyId:party_id,
+  followUpDate:follow_up_date, quotationId:quotation_id,
   createdAt:created_at, updatedAt:updated_at,
   companyName:company_name_id(id, companyName:company_name),
   assignedTo:assigned_to(id, firstName:first_name, lastName:last_name),
   party:party_id(id, partyName:party_name),
+  quotation:quotation_id(id, quotationNumber:quotation_number, status),
   createdBy:created_by(id, firstName:first_name, lastName:last_name)
 `;
 
-// Every non-Won/non-Lost stage can drop straight to Lost -- a deal dying
-// mid-funnel is normal CRM reality, not a special case. Won is reachable
-// only from Proposal Sent, the funnel's final gate, and is handled by its
-// own RPC (see convertToWon) rather than this generic transition path,
-// because it does more than flip a column.
+// Module 15: expanded from the original 5-stage funnel (New/Contacted/
+// Qualified/Proposal Sent/Won + Lost) to the scope doc's 7-stage funnel,
+// per the user's explicit choice of "expand the funnel to match the scope
+// doc" over the recommended "leave it as-is". Requirement Gathering sits
+// between Qualified and Proposal Sent; Negotiation sits between Proposal
+// Sent and Won. Every non-Won/non-Lost stage can still drop straight to
+// Lost -- a deal dying mid-funnel is normal CRM reality, not a special
+// case. Won is reachable only from Negotiation, the funnel's new final
+// gate, and is handled by its own RPC (see markWon) rather than this
+// generic transition path, because it does more than flip a column.
+//
+// No data migration was needed for existing in-flight opportunities: all
+// 4 of the original non-terminal stage names (New/Contacted/Qualified/
+// Proposal Sent) remain valid stage values in the new 7-stage list, so
+// every existing opportunity keeps sitting at the exact stage it was
+// already at -- there was nothing ambiguous to ask the user about
+// per-record, despite that being the answer picked for that question.
 const ALLOWED_TRANSITIONS = {
   New: ["Contacted", "Lost"],
   Contacted: ["Qualified", "Lost"],
-  Qualified: ["Proposal Sent", "Lost"],
-  "Proposal Sent": ["Won", "Lost"],
+  Qualified: ["Requirement Gathering", "Lost"],
+  "Requirement Gathering": ["Proposal Sent", "Lost"],
+  "Proposal Sent": ["Negotiation", "Lost"],
+  Negotiation: ["Won", "Lost"],
 };
 
-const EDITABLE_STAGES = ["New", "Contacted", "Qualified", "Proposal Sent"];
+const EDITABLE_STAGES = ["New", "Contacted", "Qualified", "Requirement Gathering", "Proposal Sent", "Negotiation"];
 
 async function recordHistory({ opportunityId, fromStage, toStage, changedBy, remarks }) {
   const { error } = await supabase.from("opportunity_stage_history").insert({
@@ -102,7 +118,7 @@ async function transition(req, res, { toStage, requireRemarksField, extraUpdate 
 
 exports.createOpportunity = async (req, res) => {
   try {
-    const { companyName, prospectName, contactPerson, contactPhone, contactEmail, estimatedValue, source, assignedTo, notes } = req.body;
+    const { companyName, prospectName, contactPerson, contactPhone, contactEmail, estimatedValue, source, assignedTo, notes, followUpDate } = req.body;
     if (!isValidId(companyName)) {
       return res.status(400).json({ success: false, message: "Invalid company ID" });
     }
@@ -130,6 +146,13 @@ exports.createOpportunity = async (req, res) => {
       p_initials: initials,
     });
     if (error) throw error;
+
+    // follow_up_date isn't part of create_opportunity_transactional's
+    // signature (kept untouched) -- set with a plain follow-up update
+    // instead of extending that RPC for one optional column.
+    if (followUpDate) {
+      await supabase.from("opportunities").update({ follow_up_date: followUpDate }).eq("id", opportunityId);
+    }
 
     const { data: populated } = await supabase.from("opportunities").select(SELECT).eq("id", opportunityId).single();
     logAudit({ req, action: "create", module: "opportunity", recordId: opportunityId, newValue: populated });
@@ -212,7 +235,7 @@ exports.updateOpportunity = async (req, res) => {
       return res.status(400).json({ success: false, message: "A Won or Lost opportunity can no longer be edited" });
     }
 
-    const { companyName, prospectName, contactPerson, contactPhone, contactEmail, estimatedValue, source, assignedTo, notes } = req.body;
+    const { companyName, prospectName, contactPerson, contactPhone, contactEmail, estimatedValue, source, assignedTo, notes, followUpDate } = req.body;
     if (companyName && !isValidId(companyName)) {
       return res.status(400).json({ success: false, message: "Invalid company ID" });
     }
@@ -230,6 +253,7 @@ exports.updateOpportunity = async (req, res) => {
       ...(source !== undefined && { source }),
       ...(assignedTo !== undefined && { assigned_to: assignedTo || null }),
       ...(notes !== undefined && { notes }),
+      ...(followUpDate !== undefined && { follow_up_date: followUpDate || null }),
       updated_at: new Date().toISOString(),
       updated_by: req.user?.id || null,
     };
@@ -272,9 +296,19 @@ exports.markQualified = async (req, res) => {
   if (result) res.status(200).json({ success: true, message: "Opportunity marked Qualified", data: withMongoId(result.data) });
 };
 
+exports.markRequirementGathering = async (req, res) => {
+  const result = await transition(req, res, { toStage: "Requirement Gathering" });
+  if (result) res.status(200).json({ success: true, message: "Opportunity marked Requirement Gathering", data: withMongoId(result.data) });
+};
+
 exports.markProposalSent = async (req, res) => {
   const result = await transition(req, res, { toStage: "Proposal Sent" });
   if (result) res.status(200).json({ success: true, message: "Opportunity marked Proposal Sent", data: withMongoId(result.data) });
+};
+
+exports.markNegotiation = async (req, res) => {
+  const result = await transition(req, res, { toStage: "Negotiation" });
+  if (result) res.status(200).json({ success: true, message: "Opportunity marked Negotiation", data: withMongoId(result.data) });
 };
 
 exports.markLost = async (req, res) => {
@@ -285,7 +319,9 @@ exports.markLost = async (req, res) => {
 // Won is not a generic transition -- per the design decision, winning
 // automatically creates the real customer party via
 // convert_opportunity_won_transactional, so it gets its own RPC-backed
-// path instead of the plain column-flip every other stage uses.
+// path instead of the plain column-flip every other stage uses. Module
+// 15 moved the gate from Proposal Sent to Negotiation, the funnel's new
+// final stage before Won.
 exports.markWon = async (req, res) => {
   try {
     const { id } = req.params;
@@ -296,8 +332,8 @@ exports.markWon = async (req, res) => {
     if (!opp) {
       return res.status(404).json({ success: false, message: "Opportunity not found" });
     }
-    if (opp.stage !== "Proposal Sent") {
-      return res.status(400).json({ success: false, message: "Only an opportunity at Proposal Sent can be marked Won" });
+    if (opp.stage !== "Negotiation") {
+      return res.status(400).json({ success: false, message: "Only an opportunity at Negotiation can be marked Won" });
     }
 
     const { data: partyId, error } = await supabase.rpc("convert_opportunity_won_transactional", {
@@ -348,6 +384,78 @@ exports.getOpportunityActivities = async (req, res) => {
     res.status(200).json({ success: true, data: withMongoId(data) });
   } catch (error) {
     res.status(500).json({ success: false, message: "Error fetching opportunity activities: " + error.message });
+  }
+};
+
+// Module 15: Opportunity -> Quotation conversion. Gated on the
+// opportunity already being Won rather than any earlier stage, because
+// quotations.party_id is NOT NULL and party_id on an opportunity is only
+// ever populated by markWon's convert_opportunity_won_transactional --
+// there is no real customer party to quote against before that. Reuses
+// the same create_quotation_transactional RPC createQuotation calls,
+// rather than duplicating its logic, so both paths stay in sync.
+exports.convertOpportunityToQuotation = async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!isValidId(id)) {
+      return res.status(400).json({ success: false, message: "Invalid opportunity ID" });
+    }
+    const { data: opp } = await supabase
+      .from("opportunities")
+      .select("id, stage, party_id, company_name_id, quotation_id, opportunity_number")
+      .eq("id", id)
+      .eq("is_delete", false)
+      .maybeSingle();
+    if (!opp) {
+      return res.status(404).json({ success: false, message: "Opportunity not found" });
+    }
+    if (opp.stage !== "Won" || !opp.party_id) {
+      return res.status(400).json({ success: false, message: "Only a Won opportunity (with its converted party) can be converted to a quotation" });
+    }
+    if (opp.quotation_id) {
+      return res.status(400).json({ success: false, message: "This opportunity has already been converted to a quotation" });
+    }
+
+    const { productItem, qty, size, specs, rateType, rate, printingrate, isGst, gstPercentage, totalAmount, validUntil, remarks } = req.body;
+    if (!isValidId(productItem) || !qty) {
+      return res.status(400).json({ success: false, message: "productItem and qty are required" });
+    }
+    const { data: productItemRow } = await supabase.from("product_items").select("id").eq("id", productItem).eq("is_delete", false).maybeSingle();
+    if (!productItemRow) {
+      return res.status(404).json({ success: false, message: "Product item not found" });
+    }
+
+    const { data: company } = await supabase.from("company_names").select("id, company_name").eq("id", opp.company_name_id).maybeSingle();
+    const initials = deriveInitials(company?.company_name || "");
+
+    const { data: quotationId, error } = await supabase.rpc("create_quotation_transactional", {
+      p_company_name_id: opp.company_name_id,
+      p_party_id: opp.party_id,
+      p_product_item_id: productItem,
+      p_qty: parseInt(qty, 10),
+      p_size: size || null,
+      p_specs: specs || {},
+      p_rate_type: rateType || null,
+      p_rate: rate !== undefined ? parseFloat(rate) : null,
+      p_printingrate: printingrate !== undefined ? parseFloat(printingrate) : null,
+      p_is_gst: isGst !== false,
+      p_gst_percentage: gstPercentage !== undefined ? parseFloat(gstPercentage) : null,
+      p_total_amount: totalAmount !== undefined ? parseFloat(totalAmount) : null,
+      p_valid_until: validUntil || null,
+      p_remarks: remarks || `Converted from opportunity ${opp.opportunity_number}`,
+      p_created_by: req.user?.id || null,
+      p_initials: initials,
+    });
+    if (error) throw error;
+
+    await supabase.from("opportunities").update({ quotation_id: quotationId, updated_by: req.user?.id || null, updated_at: new Date().toISOString() }).eq("id", id);
+
+    const { data: populated } = await supabase.from("opportunities").select(SELECT).eq("id", id).single();
+    logAudit({ req, action: "update", module: "opportunity", recordId: id, newValue: { quotationId } });
+
+    res.status(201).json({ success: true, message: "Opportunity converted to quotation", data: withMongoId(populated) });
+  } catch (error) {
+    res.status(500).json({ success: false, message: "Error converting opportunity to quotation: " + error.message });
   }
 };
 

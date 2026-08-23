@@ -52,6 +52,7 @@ const AppSettings = require("./appSettings.routes");
 const NumberingConfig = require("./numberingConfig.routes");
 const Routing = require("./routing.routes");
 const LoginHistory = require("./loginHistory.routes");
+const Reports = require("./reports.routes");
 
 router.use("/company", CompanyRouter);
 router.use("/staff", StaffRouter);
@@ -104,4 +105,5 @@ router.use("/app-settings", AppSettings);
 router.use("/numbering-configs", NumberingConfig);
 router.use("/routing", Routing);
 router.use("/login-history", LoginHistory);
+router.use("/reports", Reports);
 module.exports = router;

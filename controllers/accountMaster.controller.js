@@ -623,6 +623,88 @@ exports.getAccountMasterByStaffId = async (req, res) => {
   }
 };
 
+// Module 15: CRM 360-degree party view. Aggregates every module that
+// already has (or, for quotations, now has) a party-scoping filter --
+// orders, quotations, invoices, receipts, opportunities, and this party's
+// call log (the "leads" table, filterable via its confusingly-named
+// partyName param that actually does .eq("party_name_id", ...)) -- into
+// one payload keyed off the account_master id the party detail page
+// already uses, rather than exposing the underlying parties.id to the
+// frontend as a second identifier for the same record.
+exports.getPartyThreeSixty = async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!isValidId(id)) {
+      return res.status(400).json({ success: false, message: "Invalid AccountMaster ID" });
+    }
+    const { data: am, error } = await supabase.from("account_masters").select(AM_SELECT).eq("id", id).eq("is_delete", false).maybeSingle();
+    if (error) throw error;
+    if (!am) {
+      return res.status(404).json({ success: false, message: "AccountMaster not found" });
+    }
+    const partyId = am.party?.id;
+    if (!partyId) {
+      return res.status(404).json({ success: false, message: "This account master has no linked party" });
+    }
+
+    const [ordersRes, quotationsRes, invoicesRes, receiptsRes, opportunitiesRes, callsRes] = await Promise.all([
+      supabase
+        .from("orders")
+        .select("id, orderNumber:order_number, qty, status, expectedDeliveryDate:expected_delivery_date, createdAt:created_at")
+        .eq("party_id", partyId)
+        .eq("is_delete", false)
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("quotations")
+        .select("id, quotationNumber:quotation_number, status, totalAmount:total_amount, createdAt:created_at")
+        .eq("party_id", partyId)
+        .eq("is_delete", false)
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("invoices")
+        .select("id, invoiceNumber:invoice_number, status, grandTotal:grand_total, amountPaid:amount_paid, invoiceDate:invoice_date")
+        .eq("party_id", partyId)
+        .eq("is_delete", false)
+        .order("invoice_date", { ascending: false }),
+      supabase.from("receipts").select("id, receiptNumber:receipt_number, amount, paymentDate:payment_date").eq("party_id", partyId).eq("is_delete", false).order("payment_date", { ascending: false }),
+      supabase
+        .from("opportunities")
+        .select("id, opportunityNumber:opportunity_number, stage, estimatedValue:estimated_value, createdAt:created_at")
+        .eq("party_id", partyId)
+        .eq("is_delete", false)
+        .order("created_at", { ascending: false }),
+      supabase.from("leads").select("id, reason, status, date, callFeedback:call_feedback").eq("party_name_id", partyId).eq("is_delete", false).order("date", { ascending: false }),
+    ]);
+
+    const revenue = Number((invoicesRes.data || []).reduce((sum, inv) => sum + Number(inv.grandTotal || 0), 0).toFixed(2));
+    const outstanding = Number((invoicesRes.data || []).reduce((sum, inv) => sum + (Number(inv.grandTotal || 0) - Number(inv.amountPaid || 0)), 0).toFixed(2));
+
+    res.status(200).json({
+      success: true,
+      data: withMongoId({
+        party: am.party,
+        summary: {
+          orderCount: (ordersRes.data || []).length,
+          quotationCount: (quotationsRes.data || []).length,
+          invoiceCount: (invoicesRes.data || []).length,
+          openOpportunityCount: (opportunitiesRes.data || []).filter((o) => !["Won", "Lost"].includes(o.stage)).length,
+          revenue,
+          outstanding,
+        },
+        orders: ordersRes.data || [],
+        quotations: quotationsRes.data || [],
+        invoices: invoicesRes.data || [],
+        receipts: receiptsRes.data || [],
+        opportunities: opportunitiesRes.data || [],
+        calls: callsRes.data || [],
+      }),
+    });
+  } catch (error) {
+    console.error("Error building party 360 view:", error);
+    res.status(500).json({ success: false, message: "Failed to build party 360 view", error: error.message });
+  }
+};
+
 exports.searchParties = async (req, res) => {
   try {
     const { q } = req.query;

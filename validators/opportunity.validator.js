@@ -19,12 +19,29 @@ const createOpportunitySchema = z.object({
   source: z.string().optional(),
   assignedTo: idField.optional(),
   notes: z.string().optional(),
+  // Module 15: follow-up reminder date, editable at any editable stage.
+  followUpDate: z.string().optional().or(z.literal("")),
 });
 
-// Only New/Contacted/Qualified/Proposal Sent opportunities can be edited
-// (enforced in the controller) — the shape itself is the same fields, all
-// optional.
+// Only New/Contacted/Qualified/Requirement Gathering/Proposal
+// Sent/Negotiation opportunities can be edited (enforced in the
+// controller) — the shape itself is the same fields, all optional.
 const updateOpportunitySchema = createOpportunitySchema.partial();
+
+const convertToQuotationSchema = z.object({
+  productItem: idField,
+  qty: numericField.refine((v) => Number(v) > 0, "qty must be positive"),
+  size: z.string().optional(),
+  specs: z.record(z.any()).optional(),
+  rateType: z.string().optional(),
+  rate: numericField.optional(),
+  printingrate: numericField.optional(),
+  isGst: z.boolean().optional(),
+  gstPercentage: numericField.optional(),
+  totalAmount: numericField.optional(),
+  validUntil: z.string().optional(),
+  remarks: z.string().optional(),
+});
 
 const loseOpportunitySchema = z.object({
   lostReason: z.string().min(1, "A reason is required to mark an opportunity Lost"),
@@ -41,4 +58,5 @@ module.exports = {
   updateOpportunitySchema,
   loseOpportunitySchema,
   addActivitySchema,
+  convertToQuotationSchema,
 };

@@ -155,11 +155,16 @@ exports.createQuotation = async (req, res) => {
 
 exports.getAllQuotations = async (req, res) => {
   try {
-    const { status, search, page, limit } = req.query;
+    const { status, search, page, limit, partyId } = req.query;
     const paginate = page !== undefined || limit !== undefined;
 
     let query = supabase.from("quotations").select(SELECT, { count: "exact" }).eq("is_delete", false).order("created_at", { ascending: false });
     if (status) query = query.eq("status", status);
+    // Module 15: powers the party 360 view's quotation history panel --
+    // this filter didn't exist before even though quotations.party_id
+    // always has (orders/invoices/receipts/opportunities already support
+    // the equivalent party-scoping param).
+    if (partyId) query = query.eq("party_id", partyId);
     if (search && String(search).trim()) {
       query = query.ilike("quotation_number", `%${String(search).trim()}%`);
     }

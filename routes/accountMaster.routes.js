@@ -20,6 +20,7 @@ router.put("/party/:id/approve", AccountMasterController.approveParty);
 
 // Get a single account master by ID
 router.get("/getbyid/:id", AccountMasterController.getAccountMasterById);
+router.get("/getbyid/:id/360", AccountMasterController.getPartyThreeSixty);
 router.get("/getbystaffid/:id", AccountMasterController.getAccountMasterByStaffId);
 
 // Update an account master by ID
