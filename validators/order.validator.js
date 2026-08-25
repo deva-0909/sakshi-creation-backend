@@ -39,6 +39,19 @@ const createOrderSchema = z.object({
   // Module 12: Sales Order commercial fields.
   customerPoNumber: z.string().trim().optional(),
   priority: z.enum(["Low", "Normal", "High", "Urgent"]).optional(),
+  // Deep-audit fix: createOrder (controllers/order.controller.js) has always
+  // read expectedDeliveryDate off req.body and passed it to the create-order
+  // RPC (p_expected_delivery_date), but this schema never modeled the field
+  // and createOrderSchema has no .passthrough() -- so zod's default
+  // strip-unrecognized-keys behavior silently dropped it on every order
+  // creation, meaning the field could never actually be saved from the
+  // create form despite the UI collecting it. An empty string is treated as
+  // "no date supplied" (mapped to null) for the same reason numericField
+  // does above -- Postgres date columns reject "".
+  expectedDeliveryDate: z.preprocess(
+    (v) => (v === "" ? null : v),
+    z.union([z.string(), z.null()]).optional()
+  ),
 });
 
 // Update payloads are partial — any subset of the above fields, still
