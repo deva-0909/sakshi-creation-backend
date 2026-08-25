@@ -54,6 +54,7 @@ const Routing = require("./routing.routes");
 const LoginHistory = require("./loginHistory.routes");
 const Reports = require("./reports.routes");
 const DyePunch = require("./dyePunch.routes");
+const Complaint = require("./complaint.routes");
 
 router.use("/company", CompanyRouter);
 router.use("/staff", StaffRouter);
@@ -108,4 +109,5 @@ router.use("/routing", Routing);
 router.use("/login-history", LoginHistory);
 router.use("/reports", Reports);
 router.use("/dye-punches", DyePunch);
+router.use("/complaints", Complaint);
 module.exports = router;
