@@ -47,7 +47,7 @@ function processFileList(input) {
 
 exports.createOrder = async (req, res) => {
   try {
-    const { companyName, party, productItem, qty, remarks, filePaths, createdBy, isGst, size, rate, rateType, isLamination, laminationType, customerPoNumber, priority, expectedDeliveryDate, ply, deckal } = req.body;
+    const { companyName, party, productItem, qty, remarks, filePaths, createdBy, isGst, size, rate, rateType, isLamination, laminationType, customerPoNumber, priority, expectedDeliveryDate, ply, deckal, gsm } = req.body;
 
     if (!companyName || !party || !productItem || !qty) {
       return res.status(400).json({ success: false, message: "Company, Party, Product Item, and Quantity are required" });
@@ -63,6 +63,9 @@ exports.createOrder = async (req, res) => {
     }
     if (deckal !== undefined && deckal !== null && (isNaN(deckal) || deckal < 0)) {
       return res.status(400).json({ success: false, message: "Deckal must be a non-negative number" });
+    }
+    if (gsm !== undefined && gsm !== null && (isNaN(gsm) || gsm < 0)) {
+      return res.status(400).json({ success: false, message: "GSM must be a non-negative number" });
     }
     if (rateType !== undefined && !["old", "new"].includes(rateType)) {
       return res.status(400).json({ success: false, message: "Rate type must be either 'old' or 'new'" });
@@ -119,17 +122,21 @@ exports.createOrder = async (req, res) => {
     });
     if (error) throw error;
 
-    // Ply/Deckal (QP box-manufacturing Figma audit, 2026-08-25) aren't
-    // parameters on create_order_transactional -- rather than widen that
-    // RPC's signature for two optional fields, they're set with a plain
-    // follow-up update when supplied, same as every other genuinely
-    // optional order field handled outside the RPC.
-    if (ply !== undefined || deckal !== undefined) {
+    // Ply/Deckal/GSM (QP box-manufacturing Figma audit, 2026-08-25 + flow
+    // trace follow-up) aren't parameters on create_order_transactional --
+    // rather than widen that RPC's signature for a few optional fields,
+    // they're set with a plain follow-up update when supplied, same as
+    // every other genuinely optional order field handled outside the RPC.
+    // GSM already existed as a column (set from the SC per-stage pages via
+    // updateOrder) but was never collectible on the QP order-intake form
+    // the Figma design shows it on -- this closes that specific gap.
+    if (ply !== undefined || deckal !== undefined || gsm !== undefined) {
       await supabase
         .from("orders")
         .update({
           ...(ply !== undefined && { ply: ply === null ? null : parseFloat(ply) }),
           ...(deckal !== undefined && { deckal: deckal === null ? null : parseFloat(deckal) }),
+          ...(gsm !== undefined && { gsm: gsm === null ? null : parseFloat(gsm) }),
         })
         .eq("id", orderId);
     }

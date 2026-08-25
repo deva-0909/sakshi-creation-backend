@@ -58,6 +58,11 @@ const createOrderSchema = z.object({
   // Sakshi Creation orders simply never populate them.
   ply: numericField.optional(),
   deckal: numericField.optional(),
+  // Flow-trace follow-up (2026-08-25): gsm already existed as a column
+  // (set from SC's per-stage pages via updateOrder) but createOrderSchema
+  // never modeled it, so it couldn't be collected on the order-intake form
+  // itself -- the only place the Figma design actually shows it.
+  gsm: numericField.optional(),
 });
 
 // Update payloads are partial — any subset of the above fields, still
