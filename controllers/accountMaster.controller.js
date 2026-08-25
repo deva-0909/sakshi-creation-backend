@@ -165,9 +165,18 @@ function fallbackAssignment(account) {
 // mechanical port of the getAllOrders pattern. Left unpaginated on purpose.
 exports.getAllAccountMasters = async (req, res) => {
   try {
-    const { statusApproval } = req.query;
+    const { statusApproval, companyName } = req.query;
 
     let query = supabase.from("account_masters").select(AM_SELECT).eq("is_delete", false).order("created_at", { ascending: false });
+    // Two-company support (claude/two-company-gap-analysis.md, Phase 0):
+    // account_masters.company_name_id has always existed on this table --
+    // getAllAccountMasters just never accepted a filter for it, so the
+    // global company toggle had nothing to actually scope this list with.
+    // Invalid/omitted companyName falls through to the unfiltered
+    // (all-companies) behavior this endpoint already had.
+    if (companyName && isValidId(companyName)) {
+      query = query.eq("company_name_id", companyName);
+    }
     const { data: accountMasters, error } = await query;
     if (error) throw error;
 

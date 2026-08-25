@@ -153,7 +153,7 @@ exports.createPurchase = async (req, res) => {
 
 exports.getAllPurchases = async (req, res) => {
   try {
-    const { page, limit } = req.query;
+    const { page, limit, companyName } = req.query;
     const paginate = page !== undefined || limit !== undefined;
 
     // No single obvious text column to search across (vendor/material are
@@ -163,6 +163,15 @@ exports.getAllPurchases = async (req, res) => {
       .select(SELECT, { count: "exact" })
       .eq("is_delete", false)
       .order("created_at", { ascending: false });
+
+    // Two-company support (claude/two-company-gap-analysis.md, Phase 0):
+    // purchases.company_name_id already exists and is set on every create
+    // (see createPurchase below) -- this list endpoint just never accepted
+    // a filter for it. Invalid/omitted companyName keeps today's
+    // unfiltered (all-companies) behavior.
+    if (companyName && isValidId(companyName)) {
+      query = query.eq("company_name_id", companyName);
+    }
 
     let pageNum, limitNum, from;
     if (paginate) {
