@@ -20,11 +20,15 @@ function stageOrderForCompany(companyName) {
 const SELECT = `
   id, jobCardNumber:job_card_number, qty, priority, dueDate:due_date, status, currentStage:current_stage,
   createdAt:created_at, updatedAt:updated_at,
-  order:order_id(id, orderNumber:order_number, companyName:company_name_id(id, companyName:company_name)),
+  order:order_id!inner(id, orderNumber:order_number, companyName:company_name_id(id, companyName:company_name)),
   productItem:product_item_id(id, itemName:item_name),
   assignedTo:assigned_to(id, firstName:first_name, lastName:last_name),
   createdBy:created_by(id, firstName:first_name, lastName:last_name)
 `;
+// order_id and orders.company_name_id are both NOT NULL, so switching the
+// order embed above to !inner doesn't drop any rows for existing callers --
+// it just makes getAllJobCards' new companyName filter below possible
+// (PostgREST requires !inner to filter on an embedded table's columns).
 
 // Spawns a job card from an existing order. The order and its own
 // designer/printer/binder/booklet_binder fields are untouched — this is
@@ -77,13 +81,20 @@ exports.createJobCard = async (req, res) => {
 
 exports.getAllJobCards = async (req, res) => {
   try {
-    const { status, priority, assignedTo, page, limit } = req.query;
+    const { status, priority, assignedTo, companyName, currentStage, page, limit } = req.query;
     const paginate = page !== undefined || limit !== undefined;
 
     let query = supabase.from("job_cards").select(SELECT, { count: "exact" }).eq("is_delete", false).order("created_at", { ascending: false });
     if (status) query = query.eq("status", status);
     if (priority) query = query.eq("priority", priority);
     if (assignedTo) query = query.eq("assigned_to", assignedTo);
+    // Phase 3 Part B (two-company): the Quality Manager Dashboard filters
+    // job cards down to Quality Packaging's own orders and, separately, to
+    // a specific pipeline stage (e.g. "Factory" or "Godown" counts). Filters
+    // via the !inner order embed above -- job cards have no company_name_id
+    // of their own, only their order does.
+    if (companyName) query = query.eq("orders.company_name_id", companyName);
+    if (currentStage) query = query.eq("current_stage", currentStage);
 
     let pageNum, limitNum, from;
     if (paginate) {
