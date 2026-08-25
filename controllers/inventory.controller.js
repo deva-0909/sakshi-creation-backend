@@ -1,7 +1,13 @@
 const supabase = require("../lib/supabaseClient");
 const { withMongoId } = require("../lib/helpers");
 
-const VALID_CATEGORIES = ["printer", "binder", "booklet", "factory", "godown"];
+// Sakshi Creation order-process audit (2026-08-25): added "designer"/"qc"/
+// "delivery" alongside the matching categoryForStage/categoryForRole fix in
+// lib/helpers.js and the widened check constraints on inventories/
+// stock_transfers/stock_adjustments/stock_reservations -- these three SC
+// stages were previously falling through to "factory" with no category of
+// their own to land in.
+const VALID_CATEGORIES = ["printer", "binder", "booklet", "factory", "godown", "designer", "qc", "delivery"];
 
 const SELECT = `
   id, category, type, quantity, kg, date, createdAt:created_at,

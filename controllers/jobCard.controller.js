@@ -42,7 +42,9 @@ exports.createJobCard = async (req, res) => {
     }
     const { data: order } = await supabase
       .from("orders")
-      .select("id, qty, product_item_id, company_name_id, company:company_name_id(company_name)")
+      .select(
+        "id, qty, product_item_id, company_name_id, status, designer_status, printer_status, binder_status, booklet_binder_status, company:company_name_id(company_name)"
+      )
       .eq("id", orderId)
       .eq("is_delete", false)
       .maybeSingle();
@@ -52,6 +54,32 @@ exports.createJobCard = async (req, res) => {
     const { data: existingJobCard } = await supabase.from("job_cards").select("id").eq("order_id", orderId).eq("is_delete", false).maybeSingle();
     if (existingJobCard) {
       return res.status(400).json({ success: false, message: "A job card already exists for this order" });
+    }
+
+    // Sakshi Creation order-process audit (2026-08-25): SC (unlike Quality
+    // Packaging) already has a full legacy production-tracking system --
+    // orders.status/designer_status/printer_status/binder_status/
+    // booklet_binder_status, driven by the printer-task/binder-task/
+    // bookletbinder-task pages. Nothing previously stopped a job card from
+    // being spawned for an SC order that's already partway through that
+    // legacy flow, which produced two independent, unsynchronized records
+    // of the same order's progress -- a real, reachable hazard flagged as
+    // the top finding of the SC audit. Block it here: a job card can still
+    // be created for a fresh SC order (nothing recorded yet), just not for
+    // one legacy tracking has already started on. Quality Packaging has no
+    // legacy pages at all, so this check is skipped for it.
+    if (order.company?.company_name !== "Quality Packaging") {
+      const legacyStageValues = [order.designer_status, order.printer_status, order.binder_status, order.booklet_binder_status];
+      const hasLegacyProgress =
+        (order.status && !["Received", "Hold"].includes(order.status)) ||
+        legacyStageValues.some((s) => s && s !== "Pending");
+      if (hasLegacyProgress) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "This order is already being tracked through the legacy production pages (Designer/Printer/Binder/Booklet Binder). Creating a job card now would start a second, unsynchronized tracking record for the same order -- continue tracking it through those pages instead.",
+        });
+      }
     }
 
     const initials = deriveInitials(order.company?.company_name);

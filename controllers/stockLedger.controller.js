@@ -9,7 +9,9 @@
 const supabase = require("../lib/supabaseClient");
 const { isValidId, withMongoId } = require("../lib/helpers");
 
-const VALID_CATEGORIES = ["printer", "binder", "booklet", "factory", "godown"];
+// Sakshi Creation order-process audit (2026-08-25): same VALID_CATEGORIES
+// widening as inventory.controller.js -- see that file's comment.
+const VALID_CATEGORIES = ["printer", "binder", "booklet", "factory", "godown", "designer", "qc", "delivery"];
 
 exports.getMaterialLedger = async (req, res) => {
   try {

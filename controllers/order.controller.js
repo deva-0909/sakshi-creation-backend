@@ -221,6 +221,28 @@ exports.updateOrder = async (req, res) => {
       return res.status(400).json({ success: false, message: "Priority must be one of Low, Normal, High, Urgent" });
     }
 
+    // Sakshi Creation order-process audit (2026-08-25): the mirror image of
+    // the guard in jobCard.controller.js's createJobCard -- once an order
+    // has switched to being tracked via a job card, writing to the legacy
+    // per-stage fields through this same generic PATCH would silently
+    // create a second, disagreeing tracking record again, just from the
+    // other direction. Only fires when this update actually touches one of
+    // the legacy pipeline fields (untouched updates -- e.g. editing remarks
+    // or files -- go through as before, even on a job-carded order).
+    const LEGACY_PIPELINE_FIELDS = ["designerStatus", "printerStatus", "binderStatus", "bookletBinderStatus", "designer", "printer", "binder", "bookletBinder"];
+    const movesLegacyStatus = body.status !== undefined && !["Received", "Hold"].includes(body.status);
+    const touchesLegacyPipeline = LEGACY_PIPELINE_FIELDS.some((f) => body[f] !== undefined) || movesLegacyStatus;
+    if (touchesLegacyPipeline) {
+      const { data: jobCard } = await supabase.from("job_cards").select("id").eq("order_id", id).eq("is_delete", false).maybeSingle();
+      if (jobCard) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "This order already has an active job card -- production is being tracked there instead. Advance its stage from the job card rather than the legacy production fields, to avoid two disagreeing tracking records.",
+        });
+      }
+    }
+
     const patch = {
       ...(body.companyName && { company_name_id: body.companyName }),
       ...(body.party && { party_id: body.party }),
@@ -444,6 +466,19 @@ exports.updateStaffStatus = async (req, res) => {
 
     const columnMap = { printer: "printer_status", binder: "binder_status", bookletBinder: "booklet_binder_status" };
     const column = columnMap[statusType];
+
+    // Sakshi Creation order-process audit (2026-08-25): same dual-tracking
+    // guard as updateOrder above -- this endpoint is the other real write
+    // path onto the legacy per-stage fields (used by the printer-task/
+    // binder-task/bookletbinder-task pages), so it needs the same check.
+    const { data: existingJobCard } = await supabase.from("job_cards").select("id").eq("order_id", orderId).eq("is_delete", false).maybeSingle();
+    if (existingJobCard) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "This order already has an active job card -- production is being tracked there instead. Advance its stage from the job card rather than the legacy production fields, to avoid two disagreeing tracking records.",
+      });
+    }
 
     const { data: before } = await supabase.from("orders").select(column).eq("id", orderId).maybeSingle();
 
