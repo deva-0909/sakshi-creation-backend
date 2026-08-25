@@ -11,6 +11,7 @@ const ORDER_SELECT = `
   designerRemarks:designer_remarks, printerRemarks:printer_remarks, binderRemarks:binder_remarks, bookletBinderRemarks:booklet_binder_remarks,
   printerPapers:printer_papers, binderPapers:binder_papers, bookletPapers:booklet_papers,
   designFiles:design_files, printerFiles:printer_files, binderFiles:binder_files, bookletBinderFiles:booklet_binder_files,
+  ply, deckal,
   isLamination:is_lamination, laminationType:lamination_type, uv, paper1, paper2, numberOfSheetUsed:number_of_sheet_used,
   sheetSize:sheet_size, paperType:paper_type, isPasting:is_pasting, isCutting:is_cutting, isCreasing:is_creasing,
   isFoil:is_foil, isPunching:is_punching, validproof, invoiceValidProof:invoice_valid_proof, reworkHistory:rework_history,
@@ -46,7 +47,7 @@ function processFileList(input) {
 
 exports.createOrder = async (req, res) => {
   try {
-    const { companyName, party, productItem, qty, remarks, filePaths, createdBy, isGst, size, rate, rateType, isLamination, laminationType, customerPoNumber, priority, expectedDeliveryDate } = req.body;
+    const { companyName, party, productItem, qty, remarks, filePaths, createdBy, isGst, size, rate, rateType, isLamination, laminationType, customerPoNumber, priority, expectedDeliveryDate, ply, deckal } = req.body;
 
     if (!companyName || !party || !productItem || !qty) {
       return res.status(400).json({ success: false, message: "Company, Party, Product Item, and Quantity are required" });
@@ -56,6 +57,12 @@ exports.createOrder = async (req, res) => {
     }
     if (rate !== undefined && (isNaN(rate) || rate < 0)) {
       return res.status(400).json({ success: false, message: "Rate must be a non-negative number" });
+    }
+    if (ply !== undefined && ply !== null && (isNaN(ply) || ply < 0)) {
+      return res.status(400).json({ success: false, message: "Ply must be a non-negative number" });
+    }
+    if (deckal !== undefined && deckal !== null && (isNaN(deckal) || deckal < 0)) {
+      return res.status(400).json({ success: false, message: "Deckal must be a non-negative number" });
     }
     if (rateType !== undefined && !["old", "new"].includes(rateType)) {
       return res.status(400).json({ success: false, message: "Rate type must be either 'old' or 'new'" });
@@ -111,6 +118,21 @@ exports.createOrder = async (req, res) => {
       p_expected_delivery_date: expectedDeliveryDate || null,
     });
     if (error) throw error;
+
+    // Ply/Deckal (QP box-manufacturing Figma audit, 2026-08-25) aren't
+    // parameters on create_order_transactional -- rather than widen that
+    // RPC's signature for two optional fields, they're set with a plain
+    // follow-up update when supplied, same as every other genuinely
+    // optional order field handled outside the RPC.
+    if (ply !== undefined || deckal !== undefined) {
+      await supabase
+        .from("orders")
+        .update({
+          ...(ply !== undefined && { ply: ply === null ? null : parseFloat(ply) }),
+          ...(deckal !== undefined && { deckal: deckal === null ? null : parseFloat(deckal) }),
+        })
+        .eq("id", orderId);
+    }
 
     const { data: populatedOrder } = await supabase.from("orders").select(ORDER_SELECT).eq("id", orderId).single();
 
@@ -211,6 +233,12 @@ exports.updateOrder = async (req, res) => {
     if (body.rate !== undefined && (isNaN(body.rate) || body.rate < 0)) {
       return res.status(400).json({ success: false, message: "Rate must be a non-negative number" });
     }
+    if (body.ply !== undefined && body.ply !== null && (isNaN(body.ply) || body.ply < 0)) {
+      return res.status(400).json({ success: false, message: "Ply must be a non-negative number" });
+    }
+    if (body.deckal !== undefined && body.deckal !== null && (isNaN(body.deckal) || body.deckal < 0)) {
+      return res.status(400).json({ success: false, message: "Deckal must be a non-negative number" });
+    }
     if (body.rateType !== undefined && !["old", "new"].includes(body.rateType)) {
       return res.status(400).json({ success: false, message: "Rate type must be either 'old' or 'new'" });
     }
@@ -261,6 +289,8 @@ exports.updateOrder = async (req, res) => {
       ...(body.usedPaper !== undefined && { used_paper: body.usedPaper }),
       ...(body.printingrate !== undefined && { printingrate: body.printingrate }),
       ...(body.gsm !== undefined && { gsm: body.gsm }),
+      ...(body.ply !== undefined && { ply: body.ply === null ? null : parseFloat(body.ply) }),
+      ...(body.deckal !== undefined && { deckal: body.deckal === null ? null : parseFloat(body.deckal) }),
       ...(body.rate !== undefined && { rate: parseFloat(body.rate) }),
       ...(body.rateType !== undefined && { rate_type: body.rateType }),
       ...(body.designerId && { designer_id: body.designerId }),

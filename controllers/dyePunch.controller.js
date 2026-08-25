@@ -8,7 +8,7 @@ const { logAudit } = require("../lib/audit");
 // migration comment for why this is its own table rather than a new
 // `inventories` category).
 const SELECT = `
-  id, dyePunchNumber:dye_punch_number, type, size, ply, sheetSize:sheet_size, boxSize:box_size, remarks,
+  id, dyePunchNumber:dye_punch_number, type, size, ply, sheetSize:sheet_size, boxSize:box_size, kantan, kantanType:kantan_type, remarks,
   createdAt:created_at, updatedAt:updated_at,
   party:party_id(id, partyName:party_name),
   companyName:company_name_id(id, companyName:company_name)
@@ -16,7 +16,7 @@ const SELECT = `
 
 exports.createDyePunch = async (req, res) => {
   try {
-    const { dyePunchNumber, type, party, size, ply, sheetSize, boxSize, remarks, companyName } = req.body;
+    const { dyePunchNumber, type, party, size, ply, sheetSize, boxSize, kantan, kantanType, remarks, companyName } = req.body;
     if (!dyePunchNumber) {
       return res.status(400).json({ success: false, message: "Dye/Punch number is required" });
     }
@@ -40,6 +40,8 @@ exports.createDyePunch = async (req, res) => {
         ply: ply || null,
         sheet_size: sheetSize || null,
         box_size: boxSize || null,
+        kantan: kantan || null,
+        kantan_type: kantanType || null,
         remarks: remarks || null,
         company_name_id: companyName && isValidId(companyName) ? companyName : null,
         created_by: req.user?.id || null,
@@ -128,7 +130,7 @@ exports.updateDyePunch = async (req, res) => {
     if (!isValidId(id)) {
       return res.status(400).json({ success: false, message: "Invalid dye/punch ID" });
     }
-    const { dyePunchNumber, type, party, size, ply, sheetSize, boxSize, remarks, companyName } = req.body;
+    const { dyePunchNumber, type, party, size, ply, sheetSize, boxSize, kantan, kantanType, remarks, companyName } = req.body;
 
     if (party !== undefined && party && !isValidId(party)) {
       return res.status(400).json({ success: false, message: "Invalid party ID" });
@@ -158,6 +160,8 @@ exports.updateDyePunch = async (req, res) => {
         ...(ply !== undefined && { ply }),
         ...(sheetSize !== undefined && { sheet_size: sheetSize }),
         ...(boxSize !== undefined && { box_size: boxSize }),
+        ...(kantan !== undefined && { kantan }),
+        ...(kantanType !== undefined && { kantan_type: kantanType }),
         ...(remarks !== undefined && { remarks }),
         ...(companyName !== undefined && { company_name_id: companyNameUpdate }),
         updated_at: new Date().toISOString(),

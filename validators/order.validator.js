@@ -52,6 +52,12 @@ const createOrderSchema = z.object({
     (v) => (v === "" ? null : v),
     z.union([z.string(), z.null()]).optional()
   ),
+  // QP box-manufacturing Figma audit (2026-08-25): Ply/Deckal, shown on
+  // every QP order screen in the design but previously absent from the
+  // schema entirely. Shared, optional order-level fields like gsm/size --
+  // Sakshi Creation orders simply never populate them.
+  ply: numericField.optional(),
+  deckal: numericField.optional(),
 });
 
 // Update payloads are partial — any subset of the above fields, still

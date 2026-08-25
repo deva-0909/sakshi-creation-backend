@@ -234,6 +234,13 @@ exports.advanceStage = async (req, res) => {
       wastageMaterial,
       wastageForRole,
       wastageForCompany,
+      unitNumber,
+      pasteingStatus,
+      piningStatus,
+      rsFor,
+      kantan,
+      kantanDeckal,
+      factoryDeliveryDate,
     } = req.body;
     if (!isValidId(id)) {
       return res.status(400).json({ success: false, message: "Invalid job card ID" });
@@ -295,6 +302,23 @@ exports.advanceStage = async (req, res) => {
       qc_result: stage === "QC" ? qcResult || null : null,
       defect_category: stage === "QC" ? defectCategory || null : null,
       defect_reason: stage === "QC" ? defectReason || null : null,
+      // QP box-manufacturing Figma audit (2026-08-25): the Order-In
+      // screen's expandable Factory checklist (UNIT / START DATE /
+      // PASTEING / PINING / RS FOR / KANTAN / KANTAN DECKAL / DELIVERY
+      // DATE / STATUS). Gated to the Factory stage the same way the
+      // QC-only fields above are gated to QC -- this table already holds
+      // one row per (job_card, stage), so Factory's row is where this
+      // checklist naturally lives. No formula backs Kantan/Kantan Deckal
+      // anywhere in the Figma file either (see claude/qp-box-
+      // manufacturing-kantan-figma-audit.md) -- these are plain manual
+      // fields, same as the design shows.
+      unit_number: stage === "Factory" && unitNumber !== undefined && unitNumber !== null && unitNumber !== "" ? parseInt(unitNumber, 10) : null,
+      pasteing_status: stage === "Factory" ? pasteingStatus || null : null,
+      pining_status: stage === "Factory" ? piningStatus || null : null,
+      rs_for: stage === "Factory" ? rsFor || null : null,
+      kantan: stage === "Factory" ? kantan || null : null,
+      kantan_deckal: stage === "Factory" ? kantanDeckal || null : null,
+      factory_delivery_date: stage === "Factory" ? factoryDeliveryDate || null : null,
       updated_at: new Date().toISOString(),
       ...(status === "Done" && { completed_at: new Date().toISOString() }),
     };
@@ -445,6 +469,8 @@ exports.getStageHistory = async (req, res) => {
          wastageMaterial:wastage_material_id(id, materialName:material_name),
          completedQty:completed_qty, rejectedQty:rejected_qty, reworkQty:rework_qty,
          qcResult:qc_result, defectCategory:defect_category, defectReason:defect_reason,
+         unitNumber:unit_number, pasteingStatus:pasteing_status, piningStatus:pining_status,
+         rsFor:rs_for, kantan, kantanDeckal:kantan_deckal, factoryDeliveryDate:factory_delivery_date,
          assignedTo:assigned_to(id, firstName:first_name, lastName:last_name),
          machine:machine_id(id, machineName:machine_name, machineCode:machine_code)`
       )

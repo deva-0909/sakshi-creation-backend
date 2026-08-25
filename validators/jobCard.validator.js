@@ -56,6 +56,18 @@ const advanceStageSchema = z
     wastageMaterial: idField.optional(),
     wastageForRole: idField.optional(),
     wastageForCompany: idField.optional(),
+    // QP box-manufacturing Figma audit (2026-08-25): the Order-In screen's
+    // expandable Factory checklist -- only meaningful when stage ===
+    // "Factory" (same convention as the QC fields above). No formula backs
+    // kantan/kantanDeckal in the Figma file itself, so these are plain
+    // free-text fields, matching what the design shows.
+    unitNumber: numericField.optional(),
+    pasteingStatus: z.string().optional(),
+    piningStatus: z.string().optional(),
+    rsFor: z.string().optional(),
+    kantan: z.string().optional(),
+    kantanDeckal: z.string().optional(),
+    factoryDeliveryDate: z.string().optional(),
   })
   .refine((data) => data.wastedSheet === undefined || Number(data.wastedSheet) <= 0 || (data.wastageMaterial && data.wastageForRole && data.wastageForCompany), {
     message: "Recording wastage requires wastageMaterial, wastageForRole, and wastageForCompany",

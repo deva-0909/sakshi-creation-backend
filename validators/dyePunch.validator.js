@@ -12,6 +12,11 @@ const createDyePunchSchema = z.object({
   ply: z.string().optional(),
   sheetSize: z.string().optional(),
   boxSize: z.string().optional(),
+  // QP box-manufacturing Figma audit (2026-08-25): the Dye/Punch master
+  // screen also shows Kantan + Kantan type alongside Ply/Sheet Size/Box
+  // Size, which already existed here.
+  kantan: z.string().optional(),
+  kantanType: z.string().optional(),
   remarks: z.string().optional(),
   companyName: idField.optional(),
 });
