@@ -11,6 +11,7 @@ const { logAudit } = require("../lib/audit");
 // job cards/orders.
 const SELECT = `
   id, complaintNumber:complaint_number, subject, description, priority, status, resolutionNotes:resolution_notes,
+  resolvedAt:resolved_at,
   createdAt:created_at, updatedAt:updated_at,
   party:party_id(id, partyName:party_name),
   order:order_id(id, orderNumber:order_number),
@@ -173,6 +174,12 @@ exports.updateComplaint = async (req, res) => {
       ...(description !== undefined && { description: description || null }),
       ...(priority !== undefined && { priority }),
       ...(status !== undefined && { status }),
+      // Full Figma slide scan Phase 1 (claude/full-figma-slide-scan.md,
+      // Theme 8): stamp resolved_at the moment a complaint's status is set
+      // to Resolved, and clear it if it's ever reopened (moved to any other
+      // status) -- so a later re-resolve gets a fresh timestamp rather than
+      // showing a stale one from a prior resolution.
+      ...(status !== undefined && { resolved_at: status === "Resolved" ? new Date().toISOString() : null }),
       ...(party !== undefined && { party_id: party || null }),
       ...(order !== undefined && { order_id: order || null }),
       ...(assignedTo !== undefined && { assigned_to: assignedTo || null }),
