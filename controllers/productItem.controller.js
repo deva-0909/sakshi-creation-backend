@@ -7,11 +7,21 @@ const csv = require("csv-parser");
 // §77: the CSV template a bulk-import file must match.
 const BULK_TEMPLATE_HEADERS = ["itemName"];
 
-const SELECT = "id, itemName:item_name, status, createdAt:created_at, updatedAt:updated_at";
+const SELECT = "id, itemName:item_name, status, createdAt:created_at, updatedAt:updated_at, companyName:company_name_id(id, companyName:company_name)";
 
 exports.createProductItem = async (req, res) => {
   try {
-    const { itemName } = req.body;
+    const { itemName, companyName } = req.body;
+    // Two-company Phase 1 (claude/two-company-gap-analysis.md): companyName
+    // is optional -- omitted/null keeps today's behavior (item visible to
+    // every company). isValidId(undefined) is false, so an explicitly-empty
+    // value is silently treated the same as "not scoped" rather than a 400.
+    if (companyName && isValidId(companyName)) {
+      const { data: company } = await supabase.from("company_names").select("id").eq("id", companyName).maybeSingle();
+      if (!company) {
+        return res.status(400).json({ success: false, message: `Invalid companyName ID: ${companyName}` });
+      }
+    }
     if (!itemName) {
       return res.status(400).json({ success: false, message: "Item name is required" });
     }
@@ -29,7 +39,12 @@ exports.createProductItem = async (req, res) => {
 
     const { data, error } = await supabase
       .from("product_items")
-      .insert({ item_name: itemName, status: req.body.status || "Active", created_by: req.user?.id || null })
+      .insert({
+        item_name: itemName,
+        status: req.body.status || "Active",
+        created_by: req.user?.id || null,
+        company_name_id: companyName && isValidId(companyName) ? companyName : null,
+      })
       .select(SELECT)
       .single();
 
@@ -44,7 +59,7 @@ exports.createProductItem = async (req, res) => {
 
 exports.getAllProductItems = async (req, res) => {
   try {
-    const { page, limit, search, status } = req.query;
+    const { page, limit, search, status, companyName } = req.query;
     const paginate = page !== undefined || limit !== undefined;
 
     let query = supabase
@@ -52,6 +67,15 @@ exports.getAllProductItems = async (req, res) => {
       .select(SELECT, { count: "exact" })
       .eq("is_delete", false)
       .order("created_at", { ascending: false });
+
+    // Two-company Phase 1 (claude/two-company-gap-analysis.md): a company's
+    // Place New Order item picker should see that company's own items plus
+    // every unscoped (company_name_id IS NULL) item -- not just an exact
+    // match, or every pre-Phase-1 item (all currently NULL) would vanish
+    // from every company's list the moment this filter is passed.
+    if (companyName && isValidId(companyName)) {
+      query = query.or(`company_name_id.is.null,company_name_id.eq.${companyName}`);
+    }
 
     if (status) query = query.eq("status", status);
     if (search && String(search).trim()) {
@@ -110,12 +134,30 @@ exports.getProductItemById = async (req, res) => {
 exports.updateProductItem = async (req, res) => {
   try {
     const { id } = req.params;
-    const { itemName, status } = req.body;
+    const { itemName, status, companyName } = req.body;
     if (!isValidId(id)) {
       return res.status(400).json({ success: false, message: "Invalid product item ID" });
     }
-    if (!itemName && status === undefined) {
+    if (!itemName && status === undefined && companyName === undefined) {
       return res.status(400).json({ success: false, message: "Item name is required" });
+    }
+
+    // Two-company Phase 1: companyName undefined leaves the item's current
+    // scope untouched; "" or null explicitly un-scopes it back to
+    // visible-to-all; a UUID re-scopes it (validated below).
+    let companyNameUpdate;
+    if (companyName !== undefined) {
+      if (!companyName) {
+        companyNameUpdate = null;
+      } else if (isValidId(companyName)) {
+        const { data: company } = await supabase.from("company_names").select("id").eq("id", companyName).maybeSingle();
+        if (!company) {
+          return res.status(400).json({ success: false, message: `Invalid companyName ID: ${companyName}` });
+        }
+        companyNameUpdate = companyName;
+      } else {
+        return res.status(400).json({ success: false, message: `Invalid companyName ID: ${companyName}` });
+      }
     }
 
     const { data, error } = await supabase
@@ -123,6 +165,7 @@ exports.updateProductItem = async (req, res) => {
       .update({
         ...(itemName && { item_name: itemName }),
         ...(status !== undefined && { status }),
+        ...(companyName !== undefined && { company_name_id: companyNameUpdate }),
         updated_at: new Date().toISOString(),
         updated_by: req.user?.id || null,
       })
