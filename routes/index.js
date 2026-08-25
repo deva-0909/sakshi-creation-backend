@@ -53,6 +53,7 @@ const NumberingConfig = require("./numberingConfig.routes");
 const Routing = require("./routing.routes");
 const LoginHistory = require("./loginHistory.routes");
 const Reports = require("./reports.routes");
+const DyePunch = require("./dyePunch.routes");
 
 router.use("/company", CompanyRouter);
 router.use("/staff", StaffRouter);
@@ -106,4 +107,5 @@ router.use("/numbering-configs", NumberingConfig);
 router.use("/routing", Routing);
 router.use("/login-history", LoginHistory);
 router.use("/reports", Reports);
+router.use("/dye-punches", DyePunch);
 module.exports = router;
