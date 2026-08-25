@@ -22,7 +22,13 @@ const DEFECT_CATEGORIES = ["Print Misalignment", "Binding Defect", "Paper Damage
 
 const advanceStageSchema = z
   .object({
-    stage: z.enum(["Designer", "Printer", "Binder", "Booklet Binder", "QC", "Delivery"]),
+    // Phase 2 Part B (two-company): Factory/Godown added for Quality
+    // Packaging's pipeline (Printer -> Binder -> Booklet Binder -> Factory
+    // -> Godown, no Designer/QC/Delivery -- see two-company-gap-analysis.md).
+    // The controller enforces which stages are actually valid for a given
+    // job card's company; this enum is just the full superset across both
+    // companies' pipelines.
+    stage: z.enum(["Designer", "Printer", "Binder", "Booklet Binder", "QC", "Delivery", "Factory", "Godown"]),
     assignedTo: idField.optional(),
     status: z.enum(["Pending", "In Progress", "Done"]),
     remarks: z.string().optional(),

@@ -3,10 +3,24 @@ const { isValidId, withMongoId, deriveInitials, categoryForRole, categoryForStag
 const { logAudit } = require("../lib/audit");
 const { notifyStatusChange } = require("../lib/notify");
 
+// Phase 2 Part B (two-company): Quality Packaging's production pipeline is
+// Printer -> Binder -> Booklet Binder -> Factory -> Godown -- no Designer
+// or QC/Delivery stages, per the Figma reference (claude/two-company-gap-
+// analysis.md's "Confirmed concrete differences" table). Sakshi Creation's
+// pipeline is untouched. Both companies share the same Printer/Binder/
+// Booklet Binder stage machinery (machines, job_card_stages rows); Factory
+// and Godown reuse the exact same started_at/completed_at + Pending -> In
+// Progress -> Done mechanism as an IN/OUT concept, rather than new schema.
+const SAKSHI_CREATION_STAGE_ORDER = ["Designer", "Printer", "Binder", "Booklet Binder", "QC", "Delivery"];
+const QUALITY_PACKAGING_STAGE_ORDER = ["Printer", "Binder", "Booklet Binder", "Factory", "Godown"];
+function stageOrderForCompany(companyName) {
+  return companyName === "Quality Packaging" ? QUALITY_PACKAGING_STAGE_ORDER : SAKSHI_CREATION_STAGE_ORDER;
+}
+
 const SELECT = `
   id, jobCardNumber:job_card_number, qty, priority, dueDate:due_date, status, currentStage:current_stage,
   createdAt:created_at, updatedAt:updated_at,
-  order:order_id(id, orderNumber:order_number),
+  order:order_id(id, orderNumber:order_number, companyName:company_name_id(id, companyName:company_name)),
   productItem:product_item_id(id, itemName:item_name),
   assignedTo:assigned_to(id, firstName:first_name, lastName:last_name),
   createdBy:created_by(id, firstName:first_name, lastName:last_name)
@@ -37,6 +51,7 @@ exports.createJobCard = async (req, res) => {
     }
 
     const initials = deriveInitials(order.company?.company_name);
+    const initialStage = stageOrderForCompany(order.company?.company_name)[0];
 
     const { data: jobCardId, error } = await supabase.rpc("create_job_card_transactional", {
       p_order_id: orderId,
@@ -46,6 +61,7 @@ exports.createJobCard = async (req, res) => {
       p_due_date: dueDate || null,
       p_created_by: req.user?.id || null,
       p_initials: initials,
+      p_initial_stage: initialStage,
     });
     if (error) throw error;
 
@@ -169,9 +185,19 @@ exports.advanceStage = async (req, res) => {
     if (!isValidId(id)) {
       return res.status(400).json({ success: false, message: "Invalid job card ID" });
     }
-    const { data: jobCard } = await supabase.from("job_cards").select("id, current_stage, order_id").eq("id", id).eq("is_delete", false).maybeSingle();
+    const { data: jobCard } = await supabase
+      .from("job_cards")
+      .select("id, current_stage, order_id, order:order_id(company:company_name_id(company_name))")
+      .eq("id", id)
+      .eq("is_delete", false)
+      .maybeSingle();
     if (!jobCard) {
       return res.status(404).json({ success: false, message: "Job card not found" });
+    }
+
+    const stageOrder = stageOrderForCompany(jobCard.order?.company?.company_name);
+    if (!stageOrder.includes(stage)) {
+      return res.status(400).json({ success: false, message: `${stage} is not a stage in this job card's production pipeline` });
     }
 
     if (machine) {
@@ -263,9 +289,8 @@ exports.advanceStage = async (req, res) => {
     // genuinely finished rather than whatever was last touched.
     const jobCardUpdate = { updated_at: new Date().toISOString(), updated_by: req.user?.id || null };
     if (status === "Done") {
-      const STAGE_ORDER = ["Designer", "Printer", "Binder", "Booklet Binder", "QC", "Delivery"];
-      const nextIndex = STAGE_ORDER.indexOf(stage) + 1;
-      jobCardUpdate.current_stage = nextIndex < STAGE_ORDER.length ? STAGE_ORDER[nextIndex] : "Done";
+      const nextIndex = stageOrder.indexOf(stage) + 1;
+      jobCardUpdate.current_stage = nextIndex < stageOrder.length ? stageOrder[nextIndex] : "Done";
       if (jobCardUpdate.current_stage === "Done") jobCardUpdate.status = "Completed";
     }
     const { data: updatedJobCard, error: jobCardError } = await supabase.from("job_cards").update(jobCardUpdate).eq("id", id).select(SELECT).single();
