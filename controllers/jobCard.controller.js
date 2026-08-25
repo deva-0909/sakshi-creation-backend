@@ -69,6 +69,20 @@ exports.createJobCard = async (req, res) => {
     });
     if (error) throw error;
 
+    // QP order-process audit (2026-08-25): Quality Packaging orders have no
+    // legacy printer-task/binder-task-style pages driving orders.status --
+    // job_cards/job_card_stages is their ONLY production-tracking system, so
+    // without this, orders.status stays frozen at "Received" forever no
+    // matter how far the job card progresses. Sakshi Creation's orders.status
+    // is left completely alone here -- it's still driven by its own legacy
+    // pages, same as before this fix; this only fires for Quality Packaging,
+    // whose orders.status vocabulary (Printer/Binder/Booklet Binder/Factory/
+    // Godown/Completed) was added by the widened orders_status_check
+    // migration alongside this change.
+    if (order.company?.company_name === "Quality Packaging") {
+      await supabase.from("orders").update({ status: initialStage, updated_at: new Date().toISOString() }).eq("id", orderId);
+    }
+
     const { data: populated } = await supabase.from("job_cards").select(SELECT).eq("id", jobCardId).single();
 
     logAudit({ req, action: "create", module: "jobCard", recordId: jobCardId, newValue: populated });
@@ -306,6 +320,18 @@ exports.advanceStage = async (req, res) => {
     }
     const { data: updatedJobCard, error: jobCardError } = await supabase.from("job_cards").update(jobCardUpdate).eq("id", id).select(SELECT).single();
     if (jobCardError) throw jobCardError;
+
+    // QP order-process audit (2026-08-25): mirror the job card's own
+    // progress onto its parent order's status, Quality Packaging only (see
+    // the matching comment in createJobCard above -- Sakshi Creation keeps
+    // its existing legacy-page-driven orders.status untouched). Fires only
+    // when the job card actually advanced this call (status === "Done"
+    // above), so an in-progress/rework update to the *current* stage
+    // doesn't move the order backward or send a stale status.
+    if (jobCardUpdate.current_stage && jobCard.order?.company?.company_name === "Quality Packaging") {
+      const orderStatus = jobCardUpdate.current_stage === "Done" ? "Completed" : jobCardUpdate.current_stage;
+      await supabase.from("orders").update({ status: orderStatus, updated_at: new Date().toISOString() }).eq("id", jobCard.order_id);
+    }
 
     logAudit({ req, action: "update", module: "jobCard", recordId: id, newValue: { stage, status } });
 

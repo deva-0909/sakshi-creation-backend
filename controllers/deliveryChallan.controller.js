@@ -94,12 +94,15 @@ exports.createDeliveryChallan = async (req, res) => {
 
 exports.getAllDeliveryChallans = async (req, res) => {
   try {
-    const { orderId, status, search, page, limit } = req.query;
+    const { orderId, status, companyName, search, page, limit } = req.query;
     const paginate = page !== undefined || limit !== undefined;
 
     let query = supabase.from("delivery_challans").select(SELECT, { count: "exact" }).eq("is_delete", false).order("created_at", { ascending: false });
     if (orderId && isValidId(orderId)) query = query.eq("order_id", orderId);
     if (status) query = query.eq("status", status);
+    // QP order-process audit (2026-08-25): same companyName list-filter gap
+    // fix as invoice.controller.js -- see that file's comment.
+    if (companyName) query = query.eq("company_name_id", companyName);
     if (search && String(search).trim()) query = query.ilike("challan_number", `%${String(search).trim()}%`);
 
     let pageNum, limitNum, from;

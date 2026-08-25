@@ -181,12 +181,17 @@ exports.createInvoice = async (req, res) => {
 
 exports.getAllInvoices = async (req, res) => {
   try {
-    const { status, partyId, search, page, limit } = req.query;
+    const { status, partyId, companyName, search, page, limit } = req.query;
     const paginate = page !== undefined || limit !== undefined;
 
     let query = supabase.from("invoices").select(SELECT, { count: "exact" }).eq("is_delete", false).order("created_at", { ascending: false });
     if (status) query = query.eq("status", status);
     if (partyId) query = query.eq("party_id", partyId);
+    // QP order-process audit (2026-08-25): the established two-company
+    // list-filter pattern (companyName query param -> company_name_id
+    // .eq()) was applied to every other module but never came back to this
+    // one -- there was no way to list "just Quality Packaging's invoices".
+    if (companyName) query = query.eq("company_name_id", companyName);
     if (search && String(search).trim()) query = query.ilike("invoice_number", `%${String(search).trim()}%`);
 
     let pageNum, limitNum, from;

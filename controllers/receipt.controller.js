@@ -213,12 +213,15 @@ exports.createReceiptAllocation = async (req, res) => {
 
 exports.getAllReceipts = async (req, res) => {
   try {
-    const { invoiceId, partyId, search, page, limit } = req.query;
+    const { invoiceId, partyId, companyName, search, page, limit } = req.query;
     const paginate = page !== undefined || limit !== undefined;
 
     let query = supabase.from("receipts").select(SELECT, { count: "exact" }).eq("is_delete", false).order("created_at", { ascending: false });
     if (invoiceId) query = query.eq("invoice_id", invoiceId);
     if (partyId) query = query.eq("party_id", partyId);
+    // QP order-process audit (2026-08-25): same companyName list-filter gap
+    // fix as invoice.controller.js -- see that file's comment.
+    if (companyName) query = query.eq("company_name_id", companyName);
     if (search && String(search).trim()) query = query.ilike("receipt_number", `%${String(search).trim()}%`);
 
     let pageNum, limitNum, from;
