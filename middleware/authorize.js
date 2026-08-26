@@ -1,29 +1,69 @@
+const supabase = require("../lib/supabaseClient");
+
 // Per-module, per-action permission enforcement, built on the existing
 // role.permissions structure (a JSON object like
 // { "purchase": { view_global, view_own, create, edit, delete }, ... }
-// stored on the roles table and embedded into the JWT at login as
-// req.user.roleData.permissions — see staff.controller.js's loginStaff).
+// stored on the roles table and, at login, snapshotted into the JWT as
+// req.user.roleData.permissions -- see staff.controller.js's loginStaff).
 //
 // Until now authenticateToken only confirmed *who* the caller is; nothing
 // checked whether their role is actually allowed to perform the action.
 // This closes that gap for destructive/high-impact endpoints (delete,
-// bulk import, status changes) — the places where getting authorization
+// bulk import, status changes) -- the places where getting authorization
 // wrong causes real, often irreversible, damage.
 //
-// Caveat: permissions are baked into the JWT at login time, so a
-// permission change doesn't take effect for an already-logged-in staff
-// member until they log in again (tokens are valid up to 7 days). That's
-// an existing property of this app's auth design, not something this
-// patch changes — flagging it here so it isn't mistaken for a bug in
-// this middleware.
-//
+// Multi-role audit fix (Finding 4): permissions used to be trusted straight
+// from the JWT's roleData.permissions snapshot, which is only ever taken at
+// login -- so an Admin revoking or granting a permission had zero effect on
+// an already-logged-in staff member until they logged out and back in
+// (tokens are valid up to 7 days). resolvePermissions() below re-reads the
+// role's current permissions from the `roles` table on every check instead,
+// so a permission change takes effect on that user's very next request, no
+// re-login required. The JWT snapshot is kept only as a fallback -- used if
+// the live lookup fails (a transient DB error) or the role's `id` is
+// missing from an old token -- so a live DB hiccup degrades to "yesterday's
+// permissions" rather than locking every request out. If the role itself
+// has since been deleted or deactivated, the live lookup deliberately
+// returns nothing usable (falls through to the "no role permissions found"
+// 403) rather than reviving a snapshot for a role that no longer exists.
+async function resolvePermissions(req) {
+  const roleId = req.user?.roleData?.id;
+  if (roleId) {
+    try {
+      const { data, error } = await supabase
+        .from("roles")
+        .select("permissions, status, is_delete")
+        .eq("id", roleId)
+        .maybeSingle();
+      if (!error && data) {
+        if (data.is_delete || data.status !== "Active") return null;
+        return data.permissions;
+      }
+      if (error) {
+        console.error("authorize: live permission lookup failed, falling back to JWT snapshot:", error.message);
+      }
+    } catch (e) {
+      console.error("authorize: live permission lookup threw, falling back to JWT snapshot:", e.message);
+    }
+  }
+  // Fallback: older tokens without roleData.id, or a transient lookup
+  // failure. Deliberately NOT reached when the role was found but deleted/
+  // inactive -- that path already returned above.
+  return req.user?.roleData?.permissions;
+}
+
 // moduleKey may be a single key ("purchase") or an array of keys to try
 // in order ("setup.company-name" then fall back to "setup") for modules
 // the role-permissions model doesn't represent individually.
 function authorizePermission(moduleKey, action) {
   const keys = Array.isArray(moduleKey) ? moduleKey : [moduleKey];
-  return (req, res, next) => {
-    const permissions = req.user?.roleData?.permissions;
+  return async (req, res, next) => {
+    let permissions;
+    try {
+      permissions = await resolvePermissions(req);
+    } catch (e) {
+      return res.status(500).json({ success: false, message: "Failed to resolve permissions" });
+    }
     if (!permissions || typeof permissions !== "object") {
       return res.status(403).json({
         success: false,
@@ -67,8 +107,13 @@ function authorizePermission(moduleKey, action) {
 // is actually used on today passes one.
 function authorizeView(moduleKey, ownershipColumn) {
   const keys = Array.isArray(moduleKey) ? moduleKey : [moduleKey];
-  return (req, res, next) => {
-    const permissions = req.user?.roleData?.permissions;
+  return async (req, res, next) => {
+    let permissions;
+    try {
+      permissions = await resolvePermissions(req);
+    } catch (e) {
+      return res.status(500).json({ success: false, message: "Failed to resolve permissions" });
+    }
     if (!permissions || typeof permissions !== "object") {
       return res.status(403).json({
         success: false,
