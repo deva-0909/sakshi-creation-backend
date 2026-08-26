@@ -17,12 +17,21 @@ const SELECT =
 
 exports.getVendors = async (req, res) => {
   try {
-    const { page, limit, search, status } = req.query;
+    const { page, limit, search, status, companyName } = req.query;
     const paginate = page !== undefined || limit !== undefined;
 
     let query = supabase.from("vendors").select(SELECT, { count: "exact" }).eq("is_delete", false).order("created_at", { ascending: false });
 
     if (status) query = query.eq("status", status);
+    // Mobile/toggle/seed audit (2026-08-26), Phase B: vendors.company_name_id
+    // has always existed on this table, but the list endpoint never accepted
+    // a companyName filter -- every vendor picker/list in the app was
+    // therefore always company-blind. Invalid/omitted companyName falls
+    // through to the unfiltered (all-companies) behavior every existing
+    // caller already relies on.
+    if (companyName && isValidId(companyName)) {
+      query = query.eq("company_name_id", companyName);
+    }
     if (search && String(search).trim()) {
       query = query.ilike("name", `%${String(search).trim()}%`);
     }

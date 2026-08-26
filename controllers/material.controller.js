@@ -1,4 +1,5 @@
 const supabase = require("../lib/supabaseClient");
+const { isValidId } = require("../lib/helpers");
 const { logImport } = require("../lib/importLog");
 const { Readable } = require("stream");
 const csv = require("csv-parser");
@@ -14,7 +15,7 @@ const BULK_TEMPLATE_HEADERS = ["materialName", "materialSize", "materialGSM"];
 // something chosen per-purchase. Optional; the check constraint on the
 // column itself is the source of truth for the two allowed values.
 const SELECT =
-  "id, materialName:material_name, materialSize:material_size, materialGSM:material_gsm, status, reorderLevel:reorder_level, type, uom:uom_id(id, name, symbol), createdAt:created_at, updatedAt:updated_at";
+  "id, materialName:material_name, materialSize:material_size, materialGSM:material_gsm, status, reorderLevel:reorder_level, type, uom:uom_id(id, name, symbol), createdAt:created_at, updatedAt:updated_at, companyName:company_name_id(id, companyName:company_name)";
 
 exports.createMaterial = async (req, res) => {
   try {
@@ -22,6 +23,18 @@ exports.createMaterial = async (req, res) => {
     for (const field of requiredFields) {
       if (!req.body[field]) {
         return res.status(400).json({ success: false, message: `Missing required field: ${field}` });
+      }
+    }
+
+    // Mobile/toggle/seed audit (2026-08-26), Phase B: companyName is
+    // optional, mirroring product_items' tri-state pattern (Two-company
+    // Phase 1) -- omitted/null keeps today's behavior (material visible to
+    // every company).
+    const { companyName } = req.body;
+    if (companyName && isValidId(companyName)) {
+      const { data: company } = await supabase.from("company_names").select("id").eq("id", companyName).maybeSingle();
+      if (!company) {
+        return res.status(400).json({ success: false, message: `Invalid companyName ID: ${companyName}` });
       }
     }
 
@@ -51,6 +64,7 @@ exports.createMaterial = async (req, res) => {
         reorder_level: req.body.reorderLevel !== undefined && req.body.reorderLevel !== "" ? req.body.reorderLevel : null,
         type: req.body.type || null,
         created_by: req.user?.id || null,
+        company_name_id: companyName && isValidId(companyName) ? companyName : null,
       })
       .select(SELECT)
       .single();
@@ -66,10 +80,20 @@ exports.createMaterial = async (req, res) => {
 
 exports.getAllMaterials = async (req, res) => {
   try {
-    const { page, limit, search, status } = req.query;
+    const { page, limit, search, status, companyName } = req.query;
     const paginate = page !== undefined || limit !== undefined;
 
     let query = supabase.from("materials").select(SELECT, { count: "exact" }).eq("is_delete", false);
+
+    // Mobile/toggle/seed audit (2026-08-26), Phase B: a company's material
+    // picker/list should see that company's own materials plus every
+    // unscoped (company_name_id IS NULL) one -- not just an exact match, or
+    // every pre-existing material (all currently NULL) would vanish from
+    // every company's list the moment this filter is passed. Same pattern
+    // as product_items (Two-company Phase 1).
+    if (companyName && isValidId(companyName)) {
+      query = query.or(`company_name_id.is.null,company_name_id.eq.${companyName}`);
+    }
 
     if (status) query = query.eq("status", status);
     if (search && String(search).trim()) {
@@ -147,6 +171,12 @@ exports.updateMaterial = async (req, res) => {
       ...(req.body.status !== undefined && { status: req.body.status }),
       ...(req.body.reorderLevel !== undefined && { reorder_level: req.body.reorderLevel === "" ? null : req.body.reorderLevel }),
       ...(req.body.type !== undefined && { type: req.body.type || null }),
+      // Mobile/toggle/seed audit (2026-08-26), Phase B: companyName undefined
+      // leaves the material's current scoping alone; explicitly falsy clears
+      // it back to unscoped/shared. Mirrors product_items' update pattern.
+      ...(req.body.companyName !== undefined && {
+        company_name_id: req.body.companyName && isValidId(req.body.companyName) ? req.body.companyName : null,
+      }),
       updated_at: new Date().toISOString(),
       updated_by: req.user?.id || null,
     };
