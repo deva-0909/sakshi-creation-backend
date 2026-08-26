@@ -9,13 +9,24 @@ const { withMongoId } = require("../lib/helpers");
 // their own to land in.
 const VALID_CATEGORIES = ["printer", "binder", "booklet", "factory", "godown", "designer", "qc", "delivery"];
 
+// Full Figma slide scan Phase 4 (Theme 7): order/party on outward rows
+// (written by jobCard.controller.js's advanceStage/recordMaterialUsage via
+// the two record_job_card_*_transactional RPCs -- inward purchase rows
+// never carry these, so they're null there) and the dye/punch-mirroring
+// columns on Factory rows (see the phase4_inventory_depth migration;
+// nothing currently writes these except the Purchase form's optional
+// Dye/Punch Details section for Factory-category purchases -- most Factory
+// rows will show them blank, which is correct).
 const SELECT = `
   id, category, type, quantity, kg, date, createdAt:created_at,
   material:material_id(id, materialName:material_name, materialSize:material_size, materialGSM:material_gsm),
   vendor:vendor_id(id, name),
   companyName:company_name_id(id, companyName:company_name),
   for:for_role_id(id, roleName:role_name),
-  forCompany:for_company_id(id, firstName:first_name, lastName:last_name)
+  forCompany:for_company_id(id, firstName:first_name, lastName:last_name),
+  order:order_id(id, orderNumber:order_number),
+  party:party_id(id, partyName:party_name),
+  dyePunchNumber:dye_punch_number, ply, sheetSize:sheet_size, boxSize:box_size
 `;
 
 exports.getInventoryByCategory = async (req, res) => {

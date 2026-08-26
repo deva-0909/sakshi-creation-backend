@@ -354,6 +354,10 @@ exports.advanceStage = async (req, res) => {
         p_for_company_id: wastageForCompany,
         p_reason: wastageReason || null,
         p_created_by: req.user?.id || null,
+        // Full Figma slide scan Phase 4 (Theme 7): so Outward can show which
+        // order/job card the wastage belongs to.
+        p_job_card_id: id,
+        p_order_id: jobCard.order_id,
       });
       if (wastageError) throw wastageError;
       stageRow.wastage_material_id = wastageMaterial;
@@ -438,6 +442,9 @@ exports.recordMaterialUsage = async (req, res) => {
       p_for_role_id: forRole,
       p_for_company_id: forCompany,
       p_created_by: req.user?.id || null,
+      // Full Figma slide scan Phase 4 (Theme 7): so Outward can show which
+      // order consumed the material.
+      p_order_id: jobCard.order_id,
     });
     if (error) throw error;
 

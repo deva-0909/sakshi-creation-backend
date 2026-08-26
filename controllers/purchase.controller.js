@@ -65,7 +65,7 @@ exports.getStaffByRole = async (req, res) => {
   }
 };
 
-async function createInventoryForPurchase(purchase, roleName) {
+async function createInventoryForPurchase(purchase, roleName, dyePunchDetails) {
   const category = categoryForRole(roleName);
   await supabase.from("inventories").insert({
     category,
@@ -79,12 +79,40 @@ async function createInventoryForPurchase(purchase, roleName) {
     company_name_id: purchase.company_name_id,
     for_role_id: purchase.for_role_id,
     for_company_id: purchase.for_company_id,
+    // Full Figma slide scan Phase 4 (Theme 7): only meaningful for
+    // category === "factory" purchases -- the Purchase form only shows
+    // this optional section once "Factory" is picked as Deliver To, so
+    // these are undefined (-> null) for every other category's purchases.
+    ...(category === "factory" && dyePunchDetails
+      ? {
+          dye_punch_number: dyePunchDetails.dyePunchNumber || null,
+          party_id: dyePunchDetails.party || null,
+          ply: dyePunchDetails.ply || null,
+          sheet_size: dyePunchDetails.sheetSize || null,
+          box_size: dyePunchDetails.boxSize || null,
+        }
+      : {}),
   });
 }
 
 exports.createPurchase = async (req, res) => {
   try {
-    const { vendorName, billNumber, material, quantity, ratePerSheet, kg, companyName, for: role, forCompany: staff } = req.body;
+    const {
+      vendorName,
+      billNumber,
+      material,
+      quantity,
+      ratePerSheet,
+      kg,
+      companyName,
+      for: role,
+      forCompany: staff,
+      dyePunchNumber,
+      party,
+      ply,
+      sheetSize,
+      boxSize,
+    } = req.body;
 
     if (!vendorName || !billNumber || !material || !quantity || !ratePerSheet || !kg || !companyName || !role || !staff) {
       return res.status(400).json({ success: false, message: "All required fields must be provided" });
@@ -139,7 +167,7 @@ exports.createPurchase = async (req, res) => {
 
     if (error) throw error;
 
-    await createInventoryForPurchase(savedPurchase, roleExists.role_name);
+    await createInventoryForPurchase(savedPurchase, roleExists.role_name, { dyePunchNumber, party, ply, sheetSize, boxSize });
 
     const { data: populated } = await supabase.from("purchases").select(SELECT).eq("id", savedPurchase.id).single();
 
