@@ -3,7 +3,7 @@ const JobCardController = require("../controllers/jobCard.controller");
 const JobCardReworkController = require("../controllers/jobCardRework.controller");
 
 const { authenticateToken } = require("../middleware/auth");
-const { authorizePermission } = require("../middleware/authorize");
+const { authorizePermission, authorizeView } = require("../middleware/authorize");
 const { validate } = require("../middleware/validate");
 const {
   createJobCardSchema,
@@ -19,7 +19,7 @@ router.use(authenticateToken);
 
 router.post("/from-order/:orderId", authorizePermission("jobcard", "create"), validate(createJobCardSchema), JobCardController.createJobCard);
 router.get("/wastage-report", JobCardController.getWastageReport);
-router.get("/", JobCardController.getAllJobCards);
+router.get("/", authorizeView("jobcard", "assigned_to"), JobCardController.getAllJobCards);
 router.get("/:id", JobCardController.getJobCardById);
 router.patch("/:id", authorizePermission("jobcard", "edit"), validate(updateJobCardSchema), JobCardController.updateJobCard);
 router.delete("/:id", authorizePermission("jobcard", "delete"), JobCardController.deleteJobCard);

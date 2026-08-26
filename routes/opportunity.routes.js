@@ -2,7 +2,7 @@ const express = require("express");
 const OpportunityController = require("../controllers/opportunity.controller");
 
 const { authenticateToken } = require("../middleware/auth");
-const { authorizePermission } = require("../middleware/authorize");
+const { authorizePermission, authorizeView } = require("../middleware/authorize");
 const { validate } = require("../middleware/validate");
 const { createOpportunitySchema, updateOpportunitySchema, loseOpportunitySchema, addActivitySchema, convertToQuotationSchema } = require("../validators/opportunity.validator");
 const router = express.Router();
@@ -12,7 +12,7 @@ router.use(authenticateToken);
 // Follows docs/API_CONVENTIONS.md (§55): resource-oriented paths, HTTP
 // verb carries the action -- same shape as Quotation/Purchase Order.
 router.post("/", authorizePermission("opportunity", "create"), validate(createOpportunitySchema), OpportunityController.createOpportunity);
-router.get("/", OpportunityController.getAllOpportunities);
+router.get("/", authorizeView("opportunity", "assigned_to"), OpportunityController.getAllOpportunities);
 router.get("/:id", OpportunityController.getOpportunityById);
 router.patch("/:id", authorizePermission("opportunity", "edit"), validate(updateOpportunitySchema), OpportunityController.updateOpportunity);
 router.delete("/:id", authorizePermission("opportunity", "delete"), OpportunityController.deleteOpportunity);

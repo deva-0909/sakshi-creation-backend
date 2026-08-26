@@ -74,6 +74,9 @@ exports.getAllRfqs = async (req, res) => {
     let query = supabase.from("rfqs").select(SELECT, { count: "exact" }).eq("is_delete", false).order("created_at", { ascending: false });
     if (status) query = query.eq("status", status);
     if (search && String(search).trim()) query = query.ilike("rfq_number", `%${String(search).trim()}%`);
+    // Multi-role audit fix (Finding 1): authorizeView() attaches this when the
+    // caller's role only has view_own (not view_global) for this module.
+    if (req.viewOwnFilter) query = query.eq(req.viewOwnFilter.column, req.viewOwnFilter.value);
 
     let pageNum, limitNum, from;
     if (paginate) {

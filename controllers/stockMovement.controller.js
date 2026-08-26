@@ -105,6 +105,9 @@ exports.getAllStockTransfers = async (req, res) => {
     if (materialId) query = query.eq("material_id", materialId);
     if (companyName) query = query.eq("company_name_id", companyName);
     if (warehouse) query = query.or(`from_warehouse_id.eq.${warehouse},to_warehouse_id.eq.${warehouse}`);
+    // Multi-role audit fix (Finding 1): authorizeView() attaches this when the
+    // caller's role only has view_own (not view_global) for this module.
+    if (req.viewOwnFilter) query = query.eq(req.viewOwnFilter.column, req.viewOwnFilter.value);
 
     let pageNum, limitNum, from;
     if (paginate) {
@@ -179,6 +182,9 @@ exports.getAllStockAdjustments = async (req, res) => {
     if (materialId) query = query.eq("material_id", materialId);
     if (companyName) query = query.eq("company_name_id", companyName);
     if (warehouse) query = query.eq("warehouse_id", warehouse);
+    // Multi-role audit fix (Finding 1): authorizeView() attaches this when the
+    // caller's role only has view_own (not view_global) for this module.
+    if (req.viewOwnFilter) query = query.eq(req.viewOwnFilter.column, req.viewOwnFilter.value);
 
     let pageNum, limitNum, from;
     if (paginate) {
@@ -253,6 +259,9 @@ exports.getAllStockReservations = async (req, res) => {
     if (companyName) query = query.eq("company_name_id", companyName);
     if (warehouse) query = query.eq("warehouse_id", warehouse);
     if (status) query = query.eq("status", status);
+    // Multi-role audit fix (Finding 1): authorizeView() attaches this when the
+    // caller's role only has view_own (not view_global) for this module.
+    if (req.viewOwnFilter) query = query.eq(req.viewOwnFilter.column, req.viewOwnFilter.value);
 
     let pageNum, limitNum, from;
     if (paginate) {

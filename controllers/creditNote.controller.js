@@ -157,6 +157,9 @@ exports.getAllCreditNotes = async (req, res) => {
     if (partyId) query = query.eq("party_id", partyId);
     if (status) query = query.eq("status", status);
     if (search && String(search).trim()) query = query.ilike("credit_note_number", `%${String(search).trim()}%`);
+    // Multi-role audit fix (Finding 1): authorizeView() attaches this when the
+    // caller's role only has view_own (not view_global) for this module.
+    if (req.viewOwnFilter) query = query.eq(req.viewOwnFilter.column, req.viewOwnFilter.value);
 
     let pageNum, limitNum, from;
     if (paginate) {

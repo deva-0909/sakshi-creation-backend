@@ -158,6 +158,9 @@ exports.getAllOrders = async (req, res) => {
     if (status) query = query.eq("status", status);
     if (companyName && isValidId(companyName)) query = query.eq("company_name_id", companyName);
     if (party && isValidId(party)) query = query.eq("party_id", party);
+    // Multi-role audit fix (Finding 1): authorizeView() attaches this when the
+    // caller's role only has view_own (not view_global) for this module.
+    if (req.viewOwnFilter) query = query.eq(req.viewOwnFilter.column, req.viewOwnFilter.value);
 
     const pageNum = parseInt(page, 10);
     const limitNum = parseInt(limit, 10);

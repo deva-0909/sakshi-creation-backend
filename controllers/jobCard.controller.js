@@ -137,6 +137,9 @@ exports.getAllJobCards = async (req, res) => {
     // of their own, only their order does.
     if (companyName) query = query.eq("orders.company_name_id", companyName);
     if (currentStage) query = query.eq("current_stage", currentStage);
+    // Multi-role audit fix (Finding 1): authorizeView() attaches this when the
+    // caller's role only has view_own (not view_global) for this module.
+    if (req.viewOwnFilter) query = query.eq(req.viewOwnFilter.column, req.viewOwnFilter.value);
 
     let pageNum, limitNum, from;
     if (paginate) {

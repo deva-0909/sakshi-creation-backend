@@ -88,6 +88,9 @@ exports.getAllComplaints = async (req, res) => {
     if (status) query = query.eq("status", status);
     if (priority) query = query.eq("priority", priority);
     if (search) query = query.or(`complaint_number.ilike.%${search}%,subject.ilike.%${search}%`);
+    // Multi-role audit fix (Finding 1): authorizeView() attaches this when the
+    // caller's role only has view_own (not view_global) for this module.
+    if (req.viewOwnFilter) query = query.eq(req.viewOwnFilter.column, req.viewOwnFilter.value);
 
     let pageNum, limitNum, from;
     if (paginate) {

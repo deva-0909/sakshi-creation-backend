@@ -3,7 +3,7 @@ const AccountMasterController = require("../controllers/accountMaster.controller
 const multer = require("multer");
 const upload = multer({ storage: multer.memoryStorage() });
 const { authenticateToken } = require("../middleware/auth");
-const { authorizePermission } = require("../middleware/authorize");
+const { authorizePermission, authorizeView } = require("../middleware/authorize");
 const { validate } = require("../middleware/validate");
 const { createAccountMasterSchema, updateAccountMasterSchema } = require("../validators/accountMaster.validator");
 const router = express.Router();
@@ -14,7 +14,7 @@ router.use(authenticateToken);
 router.post("/create", validate(createAccountMasterSchema), AccountMasterController.createAccountMaster);
 
 // Get all account masters
-router.get("/getall", AccountMasterController.getAllAccountMasters);
+router.get("/getall", authorizeView("account_master", "created_by"), AccountMasterController.getAllAccountMasters);
 
 router.put("/party/:id/approve", AccountMasterController.approveParty);
 

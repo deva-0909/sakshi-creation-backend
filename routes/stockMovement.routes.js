@@ -1,7 +1,7 @@
 const express = require("express");
 const StockMovementController = require("../controllers/stockMovement.controller");
 const { authenticateToken } = require("../middleware/auth");
-const { authorizePermission } = require("../middleware/authorize");
+const { authorizePermission, authorizeView } = require("../middleware/authorize");
 const { validate } = require("../middleware/validate");
 const {
   createStockTransferSchema,
@@ -14,13 +14,13 @@ const router = express.Router();
 router.use(authenticateToken);
 
 router.post("/transfers", authorizePermission("stocktransfer", "create"), validate(createStockTransferSchema), StockMovementController.createStockTransfer);
-router.get("/transfers", StockMovementController.getAllStockTransfers);
+router.get("/transfers", authorizeView("stocktransfer", "created_by"), StockMovementController.getAllStockTransfers);
 
 router.post("/adjustments", authorizePermission("stockadjustment", "create"), validate(createStockAdjustmentSchema), StockMovementController.createStockAdjustment);
-router.get("/adjustments", StockMovementController.getAllStockAdjustments);
+router.get("/adjustments", authorizeView("stockadjustment", "created_by"), StockMovementController.getAllStockAdjustments);
 
 router.post("/reservations", authorizePermission("stockreservation", "create"), validate(createStockReservationSchema), StockMovementController.createStockReservation);
-router.get("/reservations", StockMovementController.getAllStockReservations);
+router.get("/reservations", authorizeView("stockreservation", "created_by"), StockMovementController.getAllStockReservations);
 router.patch(
   "/reservations/:id/status",
   authorizePermission("stockreservation", "edit"),

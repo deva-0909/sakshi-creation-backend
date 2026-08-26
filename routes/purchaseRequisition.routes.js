@@ -1,7 +1,7 @@
 const express = require("express");
 const PurchaseRequisitionController = require("../controllers/purchaseRequisition.controller");
 const { authenticateToken } = require("../middleware/auth");
-const { authorizePermission } = require("../middleware/authorize");
+const { authorizePermission, authorizeView } = require("../middleware/authorize");
 const { validate } = require("../middleware/validate");
 const {
   createPurchaseRequisitionSchema,
@@ -15,7 +15,7 @@ const router = express.Router();
 router.use(authenticateToken);
 
 router.post("/", authorizePermission("purchaserequisition", "create"), validate(createPurchaseRequisitionSchema), PurchaseRequisitionController.createPurchaseRequisition);
-router.get("/", PurchaseRequisitionController.getAllPurchaseRequisitions);
+router.get("/", authorizeView("purchaserequisition", "requested_by"), PurchaseRequisitionController.getAllPurchaseRequisitions);
 router.get("/:id", PurchaseRequisitionController.getPurchaseRequisitionById);
 router.get("/:id/history", PurchaseRequisitionController.getPurchaseRequisitionHistory);
 router.delete("/:id", authorizePermission("purchaserequisition", "delete"), PurchaseRequisitionController.deletePurchaseRequisition);

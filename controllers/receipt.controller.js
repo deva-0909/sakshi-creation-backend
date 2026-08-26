@@ -223,6 +223,9 @@ exports.getAllReceipts = async (req, res) => {
     // fix as invoice.controller.js -- see that file's comment.
     if (companyName) query = query.eq("company_name_id", companyName);
     if (search && String(search).trim()) query = query.ilike("receipt_number", `%${String(search).trim()}%`);
+    // Multi-role audit fix (Finding 1): authorizeView() attaches this when the
+    // caller's role only has view_own (not view_global) for this module.
+    if (req.viewOwnFilter) query = query.eq(req.viewOwnFilter.column, req.viewOwnFilter.value);
 
     let pageNum, limitNum, from;
     if (paginate) {

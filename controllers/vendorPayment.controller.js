@@ -162,6 +162,9 @@ exports.getAllVendorPayments = async (req, res) => {
     if (vendorId) query = query.eq("vendor_id", vendorId);
     if (purchaseOrderId) query = query.eq("purchase_order_id", purchaseOrderId);
     if (search && String(search).trim()) query = query.ilike("payment_number", `%${String(search).trim()}%`);
+    // Multi-role audit fix (Finding 1): authorizeView() attaches this when the
+    // caller's role only has view_own (not view_global) for this module.
+    if (req.viewOwnFilter) query = query.eq(req.viewOwnFilter.column, req.viewOwnFilter.value);
 
     let pageNum, limitNum, from;
     if (paginate) {

@@ -2,7 +2,7 @@ const express = require("express");
 const QuotationController = require("../controllers/quotation.controller");
 
 const { authenticateToken } = require("../middleware/auth");
-const { authorizePermission } = require("../middleware/authorize");
+const { authorizePermission, authorizeView } = require("../middleware/authorize");
 const { validate } = require("../middleware/validate");
 const {
   createQuotationSchema,
@@ -17,7 +17,7 @@ router.use(authenticateToken);
 // New module (Patch 16) -- follows docs/API_CONVENTIONS.md (§55):
 // resource-oriented paths, HTTP verb carries the action.
 router.post("/", authorizePermission("quotation", "create"), validate(createQuotationSchema), QuotationController.createQuotation);
-router.get("/", QuotationController.getAllQuotations);
+router.get("/", authorizeView("quotation", "created_by"), QuotationController.getAllQuotations);
 router.get("/:id", QuotationController.getQuotationById);
 router.patch("/:id", authorizePermission("quotation", "edit"), validate(updateQuotationSchema), QuotationController.updateQuotation);
 router.delete("/:id", authorizePermission("quotation", "delete"), QuotationController.deleteQuotation);

@@ -2,7 +2,7 @@ const express = require("express");
 const LeadController = require("../controllers/lead.controller");
 
 const { authenticateToken } = require("../middleware/auth");
-const { authorizePermission } = require("../middleware/authorize");
+const { authorizePermission, authorizeView } = require("../middleware/authorize");
 const { validate } = require("../middleware/validate");
 const { createLeadSchema, updateLeadSchema } = require("../validators/lead.validator");
 const router = express.Router();
@@ -13,7 +13,7 @@ router.use(authenticateToken);
 router.post("/create", validate(createLeadSchema), LeadController.createLead);
 
 // Get all leads
-router.get("/getall", LeadController.getAllLeads);
+router.get("/getall", authorizeView("party_call", "assigned_to"), LeadController.getAllLeads);
 
 // Get lead by ID
 router.get("/getbyid/:id", LeadController.getLeadById);

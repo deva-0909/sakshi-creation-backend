@@ -112,6 +112,9 @@ exports.getAllPurchaseReturns = async (req, res) => {
     const paginate = page !== undefined || limit !== undefined;
     let query = supabase.from("purchase_returns").select(SELECT, { count: "exact" }).eq("is_delete", false).order("created_at", { ascending: false });
     if (grnId) query = query.eq("grn_id", grnId);
+    // Multi-role audit fix (Finding 1): authorizeView() attaches this when the
+    // caller's role only has view_own (not view_global) for this module.
+    if (req.viewOwnFilter) query = query.eq(req.viewOwnFilter.column, req.viewOwnFilter.value);
 
     let pageNum, limitNum, from;
     if (paginate) {

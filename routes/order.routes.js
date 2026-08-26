@@ -15,7 +15,7 @@ const {
   updateStaffStatus
 } = require("../controllers/order.controller");
 const { authenticateToken } = require("../middleware/auth");
-const { authorizePermission } = require("../middleware/authorize");
+const { authorizePermission, authorizeView } = require("../middleware/authorize");
 const { validate } = require("../middleware/validate");
 const { createOrderSchema, updateOrderSchema } = require("../validators/order.validator");
 
@@ -23,7 +23,7 @@ router.use(authenticateToken);
 
 router.post("/create", validate(createOrderSchema), createOrder);
 
-router.get("/all", getAllOrders);
+router.get("/all", authorizeView("all_orders", "created_by"), getAllOrders);
 router.get("/getbystaffid/:id", getOrdersByStaffId);
 
 router.get("/printer", getPrinterById);

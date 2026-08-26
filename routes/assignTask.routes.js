@@ -2,7 +2,7 @@ const express = require("express");
 const AssignTaskController = require("../controllers/assignTask.controller");
 
 const { authenticateToken } = require("../middleware/auth");
-const { authorizePermission } = require("../middleware/authorize");
+const { authorizePermission, authorizeView } = require("../middleware/authorize");
 const { validate } = require("../middleware/validate");
 const { createAssignTaskSchema, updateAssignTaskSchema } = require("../validators/assignTask.validator");
 const router = express.Router();
@@ -13,7 +13,7 @@ router.use(authenticateToken);
 router.post("/create", validate(createAssignTaskSchema), AssignTaskController.createAssignTask);
 
 // Get all assign tasks
-router.get("/getall", AssignTaskController.getAllAssignTasks);
+router.get("/getall", authorizeView("assign_task", "assign_to"), AssignTaskController.getAllAssignTasks);
 
 // Get a single assign task by ID
 router.get("/getbyid/:id", AssignTaskController.getAssignTaskById);

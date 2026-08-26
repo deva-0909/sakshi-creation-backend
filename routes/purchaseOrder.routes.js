@@ -2,7 +2,7 @@ const express = require("express");
 const PurchaseOrderController = require("../controllers/purchaseOrder.controller");
 
 const { authenticateToken } = require("../middleware/auth");
-const { authorizePermission } = require("../middleware/authorize");
+const { authorizePermission, authorizeView } = require("../middleware/authorize");
 const { validate } = require("../middleware/validate");
 const { createPurchaseOrderSchema, updatePurchaseOrderSchema } = require("../validators/purchaseOrder.validator");
 const router = express.Router();
@@ -11,7 +11,7 @@ router.use(authenticateToken);
 
 router.post("/", authorizePermission("purchaseorder", "create"), validate(createPurchaseOrderSchema), PurchaseOrderController.createPurchaseOrder);
 router.post("/from-quote/:quoteId", authorizePermission("purchaseorder", "create"), PurchaseOrderController.selectWinningQuote);
-router.get("/", PurchaseOrderController.getAllPurchaseOrders);
+router.get("/", authorizeView("purchaseorder", "created_by"), PurchaseOrderController.getAllPurchaseOrders);
 router.get("/:id", PurchaseOrderController.getPurchaseOrderById);
 router.get("/:id/history", PurchaseOrderController.getPurchaseOrderHistory);
 router.patch("/:id", authorizePermission("purchaseorder", "edit"), validate(updatePurchaseOrderSchema), PurchaseOrderController.updatePurchaseOrder);
