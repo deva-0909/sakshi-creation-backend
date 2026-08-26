@@ -246,6 +246,19 @@ exports.getPurchaseRequisitionHistory = async (req, res) => {
 
 // Approved -> Converted, spawns a new RFQ from this requisition's own
 // material lines (quantityRequired -> quantityNeeded).
+//
+// Module 16 fix (audit-reconciliation.md's carried-forward non-atomic
+// conversion-pattern finding): this used to check status in JS, call
+// create_rfq_transactional, then separately update
+// purchase_requisitions.status to Converted -- a failure between those two
+// steps (or two concurrent conversions of the same requisition) could
+// leave an RFQ created with the requisition still Approved, convertible
+// again into a duplicate RFQ. convert_purchase_requisition_to_rfq_
+// transactional locks the requisition row, re-checks status under that
+// lock, creates the RFQ, and updates the requisition's status/
+// converted_to_rfq_id all in one transaction. Vendor-existence and
+// items-non-empty validation stay here in JS beforehand -- input
+// validation, not the atomicity concern the audit flagged.
 exports.convertToRfq = async (req, res) => {
   try {
     const { id } = req.params;
@@ -253,12 +266,9 @@ exports.convertToRfq = async (req, res) => {
     if (!isValidId(id)) {
       return res.status(400).json({ success: false, message: "Invalid purchase requisition ID" });
     }
-    const { data: pr } = await supabase.from("purchase_requisitions").select("id, status, company_name_id, companyRow:company_name_id(company_name)").eq("id", id).eq("is_delete", false).maybeSingle();
+    const { data: pr } = await supabase.from("purchase_requisitions").select("id, status, companyRow:company_name_id(company_name)").eq("id", id).eq("is_delete", false).maybeSingle();
     if (!pr) {
       return res.status(404).json({ success: false, message: "Purchase requisition not found" });
-    }
-    if (pr.status !== "Approved") {
-      return res.status(400).json({ success: false, message: "Only an Approved purchase requisition can be converted" });
     }
     const { data: vendors } = await supabase.from("vendors").select("id").in("id", vendorIds).eq("is_delete", false);
     if (!vendors || vendors.length !== new Set(vendorIds).size) {
@@ -270,23 +280,23 @@ exports.convertToRfq = async (req, res) => {
     }
 
     const initials = deriveInitials(pr.companyRow?.company_name);
-    const { data: rfqId, error } = await supabase.rpc("create_rfq_transactional", {
-      p_company_name_id: pr.company_name_id,
+    const { data: rfqId, error } = await supabase.rpc("convert_purchase_requisition_to_rfq_transactional", {
+      p_requisition_id: id,
       p_notes: notes || `Converted from Purchase Requisition ${id}`,
       p_created_by: req.user?.id || null,
       p_initials: initials,
       p_items: items.map((i) => ({ materialId: i.material_id, quantityNeeded: Number(i.quantity_required) })),
       p_vendor_ids: vendorIds,
     });
-    if (error) throw error;
+    if (error) {
+      if (error.message && error.message.includes("Only an Approved purchase requisition")) {
+        return res.status(400).json({ success: false, message: error.message });
+      }
+      throw error;
+    }
 
-    const { data, error: updateErr } = await supabase
-      .from("purchase_requisitions")
-      .update({ status: "Converted", converted_to_rfq_id: rfqId, updated_at: new Date().toISOString(), updated_by: req.user?.id || null })
-      .eq("id", id)
-      .select(SELECT)
-      .single();
-    if (updateErr) throw updateErr;
+    const { data, error: fetchErr } = await supabase.from("purchase_requisitions").select(SELECT).eq("id", id).single();
+    if (fetchErr) throw fetchErr;
 
     await recordHistory({ purchaseRequisitionId: id, fromStatus: "Approved", toStatus: "Converted", changedBy: req.user?.id, remarks: `Converted to RFQ ${rfqId}` });
     logAudit({ req, action: "update", module: "purchaserequisition", recordId: id, newValue: data });
@@ -299,6 +309,12 @@ exports.convertToRfq = async (req, res) => {
 
 // Approved -> Converted, spawns a new Draft PO directly (skipping RFQ) --
 // the requisitioner already knows which vendor and at what rate.
+//
+// Module 16 fix (same as convertToRfq above): status check + create + status
+// update are now one atomic transaction (convert_purchase_requisition_to_
+// po_transactional), closing the same duplicate-PO/stuck-status race.
+// Vendor-existence, items-non-empty, and rate-required validation stay
+// here in JS beforehand -- input validation, not the atomicity concern.
 exports.convertToPo = async (req, res) => {
   try {
     const { id } = req.params;
@@ -306,12 +322,9 @@ exports.convertToPo = async (req, res) => {
     if (!isValidId(id) || !isValidId(vendorId)) {
       return res.status(400).json({ success: false, message: "Invalid purchase requisition ID or vendor ID" });
     }
-    const { data: pr } = await supabase.from("purchase_requisitions").select("id, status, company_name_id, companyRow:company_name_id(company_name)").eq("id", id).eq("is_delete", false).maybeSingle();
+    const { data: pr } = await supabase.from("purchase_requisitions").select("id, status").eq("id", id).eq("is_delete", false).maybeSingle();
     if (!pr) {
       return res.status(404).json({ success: false, message: "Purchase requisition not found" });
-    }
-    if (pr.status !== "Approved") {
-      return res.status(400).json({ success: false, message: "Only an Approved purchase requisition can be converted" });
     }
     const { data: vendor } = await supabase.from("vendors").select("id").eq("id", vendorId).eq("is_delete", false).maybeSingle();
     if (!vendor) {
@@ -328,25 +341,26 @@ exports.convertToPo = async (req, res) => {
       }
     }
 
-    const initials = deriveInitials(pr.companyRow?.company_name);
-    const { data: poId, error } = await supabase.rpc("create_purchase_order_transactional", {
+    const { data: prForInitials } = await supabase.from("purchase_requisitions").select("companyRow:company_name_id(company_name)").eq("id", id).maybeSingle();
+    const initials = deriveInitials(prForInitials?.companyRow?.company_name);
+    const { data: poId, error } = await supabase.rpc("convert_purchase_requisition_to_po_transactional", {
+      p_requisition_id: id,
       p_vendor_id: vendorId,
-      p_company_name_id: pr.company_name_id,
       p_expected_date: expectedDate || null,
       p_notes: notes || `Converted from Purchase Requisition ${id}`,
       p_created_by: req.user?.id || null,
       p_initials: initials,
       p_items: items.map((i) => ({ materialId: i.material_id, quantityOrdered: Number(i.quantity_required), rate: rateByItemId[String(i.id)] })),
     });
-    if (error) throw error;
+    if (error) {
+      if (error.message && error.message.includes("Only an Approved purchase requisition")) {
+        return res.status(400).json({ success: false, message: error.message });
+      }
+      throw error;
+    }
 
-    const { data, error: updateErr } = await supabase
-      .from("purchase_requisitions")
-      .update({ status: "Converted", converted_to_po_id: poId, updated_at: new Date().toISOString(), updated_by: req.user?.id || null })
-      .eq("id", id)
-      .select(SELECT)
-      .single();
-    if (updateErr) throw updateErr;
+    const { data, error: fetchErr } = await supabase.from("purchase_requisitions").select(SELECT).eq("id", id).single();
+    if (fetchErr) throw fetchErr;
 
     await recordHistory({ purchaseRequisitionId: id, fromStatus: "Approved", toStatus: "Converted", changedBy: req.user?.id, remarks: `Converted to PO ${poId}` });
     logAudit({ req, action: "update", module: "purchaserequisition", recordId: id, newValue: data });
