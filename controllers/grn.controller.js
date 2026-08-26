@@ -57,7 +57,7 @@ exports.createGrn = async (req, res) => {
     const poItemIds = items.map((i) => i.purchaseOrderItemId);
     const { data: poItems } = await supabase
       .from("purchase_order_items")
-      .select("id, material_id, quantity_ordered, quantity_received")
+      .select("id, material_id")
       .eq("purchase_order_id", purchaseOrderId)
       .in("id", poItemIds);
     if (!poItems || poItems.length !== new Set(poItemIds).size) {
@@ -65,13 +65,6 @@ exports.createGrn = async (req, res) => {
     }
     for (const item of items) {
       const poItem = poItems.find((p) => p.id === item.purchaseOrderItemId);
-      const remaining = Number(poItem.quantity_ordered) - Number(poItem.quantity_received);
-      if (Number(item.quantityReceived) > remaining) {
-        return res.status(400).json({
-          success: false,
-          message: `Cannot receive ${item.quantityReceived} against a line with only ${remaining} remaining to receive`,
-        });
-      }
       if (String(item.materialId) !== String(poItem.material_id)) {
         return res.status(400).json({ success: false, message: "materialId does not match the purchase order line's material" });
       }
@@ -80,6 +73,16 @@ exports.createGrn = async (req, res) => {
     const category = categoryForRole(roleRow.role_name);
     const initials = deriveInitials(company?.company_name);
 
+    // Module 16 follow-up (audit-reconciliation.md, closing the loose end
+    // noted alongside the delivery-challan race fix, Patch 83): the
+    // over-receipt guard used to be a plain JS check-then-insert (read
+    // purchase_order_items.quantity_received, compare, then call this RPC)
+    // with no locking, so two concurrent GRN posts against the same PO
+    // line could both read the same "remaining" value, both pass, and
+    // jointly over-receive. create_grn_transactional now locks each PO
+    // item row and re-checks its remaining quantity itself before
+    // inserting, so this endpoint no longer needs (or does) that check in
+    // JS -- the RPC's own guard is authoritative.
     const { data: grnId, error } = await supabase.rpc("create_grn_transactional", {
       p_purchase_order_id: purchaseOrderId,
       p_vendor_id: po.vendor_id,
@@ -100,7 +103,12 @@ exports.createGrn = async (req, res) => {
       p_vendor_invoice_number: vendorInvoiceNumber || null,
       p_vendor_invoice_date: vendorInvoiceDate || null,
     });
-    if (error) throw error;
+    if (error) {
+      if (error.message && error.message.includes("remaining to receive")) {
+        return res.status(400).json({ success: false, message: error.message });
+      }
+      throw error;
+    }
 
     const { data: populated } = await supabase.from("grns").select(SELECT).eq("id", grnId).single();
     const { data: grnItems } = await supabase.from("grn_items").select(ITEM_SELECT).eq("grn_id", grnId);
