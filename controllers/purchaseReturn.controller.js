@@ -41,34 +41,24 @@ exports.createPurchaseReturn = async (req, res) => {
     }
 
     const grnItemIds = items.map((i) => i.grnItemId);
-    const { data: grnItems } = await supabase.from("grn_items").select("id, material_id, quantity_received, rate").eq("grn_id", grnId).in("id", grnItemIds);
+    const { data: grnItems } = await supabase.from("grn_items").select("id, material_id, rate").eq("grn_id", grnId).in("id", grnItemIds);
     if (!grnItems || grnItems.length !== new Set(grnItemIds).size) {
       return res.status(400).json({ success: false, message: "One or more grnItemId values don't belong to this GRN" });
     }
 
-    // A material can be returned at most once in total against a given GRN
-    // line -- sum up whatever's already been returned against each line and
-    // refuse to exceed what was actually received. There's no delete path
-    // for a purchase return (it's a posted financial/inventory movement,
-    // same as a GRN), so every row here is live.
-    const { data: alreadyReturnedRows } = await supabase.from("purchase_return_items").select("grn_item_id, quantity_returned").in("grn_item_id", grnItemIds);
-    const alreadyReturnedByItem = {};
-    for (const row of alreadyReturnedRows || []) {
-      alreadyReturnedByItem[row.grn_item_id] = (alreadyReturnedByItem[row.grn_item_id] || 0) + Number(row.quantity_returned);
-    }
-
-    for (const item of items) {
-      const grnItem = grnItems.find((g) => g.id === item.grnItemId);
-      const alreadyReturned = alreadyReturnedByItem[item.grnItemId] || 0;
-      const remaining = Number(grnItem.quantity_received) - alreadyReturned;
-      if (Number(item.quantityReturned) > remaining) {
-        return res.status(400).json({
-          success: false,
-          message: `Cannot return ${item.quantityReturned} against a line with only ${remaining} returnable`,
-        });
-      }
-    }
-
+    // Module 16 follow-up (audit-reconciliation.md, closing the loose end
+    // noted alongside the delivery-challan race fix, Patch 83): the
+    // over-return guard used to be a plain JS check-then-insert (sum
+    // purchase_return_items for each grn_item_id, compare against
+    // grn_items.quantity_received, then call this RPC) with no locking, so
+    // two concurrent returns against the same GRN line could both read the
+    // same "remaining returnable" value, both pass, and jointly
+    // over-return. create_purchase_return_transactional now locks each GRN
+    // item row and re-checks its own remaining-returnable quantity itself
+    // before inserting, so this endpoint no longer needs (or does) that
+    // check in JS -- the RPC's own guard is authoritative. There's still
+    // no delete path for a purchase return (it's a posted financial/
+    // inventory movement, same as a GRN), so every row the RPC sums is live.
     const category = categoryForRole(roleRow.role_name);
     const initials = deriveInitials(company?.company_name);
     const { data: returnNumber, error: numErr } = await supabase.rpc("next_document_number", {
@@ -99,7 +89,12 @@ exports.createPurchaseReturn = async (req, res) => {
         };
       }),
     });
-    if (error) throw error;
+    if (error) {
+      if (error.message && error.message.includes("returnable")) {
+        return res.status(400).json({ success: false, message: error.message });
+      }
+      throw error;
+    }
 
     const { data: populated } = await supabase.from("purchase_returns").select(SELECT).eq("id", returnId).single();
     const { data: returnItems } = await supabase.from("purchase_return_items").select(ITEM_SELECT).eq("purchase_return_id", returnId);
