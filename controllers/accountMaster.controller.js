@@ -152,6 +152,36 @@ function fallbackAssignment(account) {
   return { assignedTo: account.createdBy, remarks: "NA", status: "Not Started" };
 }
 
+// Full Figma slide scan Phase 6 (Theme 10): the "order No." column shown on
+// every Account Master party list -- per the user's decision, this is the
+// party's single most recent order number, not a total count. Same
+// enrich-after-fetch shape as enrichWithLatestTask above (one query for all
+// rows' party IDs, then a map lookup), scoped by company the same way so a
+// Quality Packaging order never surfaces on a Sakshi Creation party row and
+// vice versa.
+async function enrichWithLatestOrder(accounts) {
+  const partyIds = accounts.map((a) => a.party?.id).filter(Boolean);
+  if (partyIds.length === 0) return accounts.map((a) => ({ ...a, latestOrderNumber: null }));
+
+  const { data: orders } = await supabase
+    .from("orders")
+    .select("party_id, company_name_id, order_number:order_number, created_at")
+    .in("party_id", partyIds)
+    .eq("is_delete", false)
+    .order("created_at", { ascending: false });
+
+  const orderMap = {};
+  (orders || []).forEach((o) => {
+    const key = `${o.party_id}_${o.company_name_id}`;
+    if (!orderMap[key]) orderMap[key] = o.order_number;
+  });
+
+  return accounts.map((account) => ({
+    ...account,
+    latestOrderNumber: orderMap[`${account.party?.id}_${account.companyName?.id}`] || null,
+  }));
+}
+
 // NOTE (Patch 10 / audit §53-§54): deliberately NOT adding DB-level
 // pagination here. `statusApproval` and the party-null check below are
 // applied in JS *after* the query returns, and enrichWithLatestTask further
@@ -185,7 +215,8 @@ exports.getAllAccountMasters = async (req, res) => {
       filtered = filtered.filter((a) => a.party.statusApproval === statusApproval);
     }
 
-    const enriched = await enrichWithLatestTask(withMongoId(filtered));
+    const enrichedTasks = await enrichWithLatestTask(withMongoId(filtered));
+    const enriched = await enrichWithLatestOrder(enrichedTasks);
 
     res.status(200).json({ success: true, count: enriched.length, data: enriched });
   } catch (error) {
@@ -623,7 +654,8 @@ exports.getAccountMasterByStaffId = async (req, res) => {
       .order("created_at", { ascending: false });
     if (error) throw error;
 
-    const enriched = await enrichWithLatestTask(withMongoId(accountMasters));
+    const enrichedTasks = await enrichWithLatestTask(withMongoId(accountMasters));
+    const enriched = await enrichWithLatestOrder(enrichedTasks);
 
     res.status(200).json({ success: true, count: enriched.length, data: enriched });
   } catch (error) {
