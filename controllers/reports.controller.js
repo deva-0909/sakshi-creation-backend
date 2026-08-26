@@ -103,6 +103,23 @@ exports.getCustomerPerformance = async (req, res) => {
         }
       }
     }
+    // Bug found during Module 16 triage (audit-reconciliation.md's carried-forward
+    // "unverified data-integrity concern" in one of the 4 reporting endpoints):
+    // invoice.controller.js's createInvoice only requires companyName+partyId --
+    // orderId/quotationId are both optional -- so a party can have real,
+    // Issued invoices with zero orders on file (an ad-hoc invoice, or every
+    // one of its orders soft-deleted after the fact). byParty was only ever
+    // seeded from `orders`, so that party's revenue -- and the party itself --
+    // silently vanished from this report instead of showing up with $0
+    // order volume. Backfill any invoice-only parties in before summing.
+    const missingPartyIds = [...new Set((invoices || []).map((inv) => inv.partyId).filter((id) => id && !byParty[id]))];
+    if (missingPartyIds.length) {
+      const { data: extraParties } = await supabase.from("parties").select("id, partyName:party_name").in("id", missingPartyIds);
+      (extraParties || []).forEach((p) => {
+        byParty[p.id] = { party: p, orderCount: 0, totalQty: 0, revenue: 0, onTimeCount: 0, trackedCount: 0 };
+      });
+    }
+
     for (const inv of invoices || []) {
       if (byParty[inv.partyId]) byParty[inv.partyId].revenue += Number(inv.grandTotal || 0);
     }
@@ -141,7 +158,9 @@ exports.getSalespersonPerformance = async (req, res) => {
     }, {});
 
     const byStaff = {};
+    const orderIdsSeen = new Set();
     for (const o of orders || []) {
+      orderIdsSeen.add(o.id);
       if (!o.createdBy) continue;
       const key = o.createdBy.id;
       if (!byStaff[key]) byStaff[key] = { staff: o.createdBy, orderCount: 0, totalQty: 0, revenue: 0, partySet: new Set() };
@@ -149,6 +168,28 @@ exports.getSalespersonPerformance = async (req, res) => {
       byStaff[key].totalQty += Number(o.qty || 0);
       byStaff[key].revenue += revenueByOrder[o.id] || 0;
       if (o.partyId) byStaff[key].partySet.add(o.partyId);
+    }
+
+    // Same bug class as getCustomerPerformance above: deleteOrder has no
+    // guard against soft-deleting an order that's already been invoiced, so
+    // an invoice's order_id can point at an order missing from the live
+    // `orders` fetch above -- that revenue would otherwise silently vanish
+    // from every salesperson's total instead of staying attributed to
+    // whoever created the now-deleted order. Deliberately not touching
+    // orderCount/totalQty/distinctCustomers for these -- those describe
+    // *current* live order volume, not revenue history.
+    const missingOrderIds = [...new Set((invoices || []).map((inv) => inv.orderId).filter((id) => id && !orderIdsSeen.has(id)))];
+    if (missingOrderIds.length) {
+      const { data: extraOrders } = await supabase
+        .from("orders")
+        .select("id, createdBy:created_by(id, firstName:first_name, lastName:last_name)")
+        .in("id", missingOrderIds);
+      for (const o of extraOrders || []) {
+        if (!o.createdBy) continue;
+        const key = o.createdBy.id;
+        if (!byStaff[key]) byStaff[key] = { staff: o.createdBy, orderCount: 0, totalQty: 0, revenue: 0, partySet: new Set() };
+        byStaff[key].revenue += revenueByOrder[o.id] || 0;
+      }
     }
 
     const rows = Object.values(byStaff)
