@@ -9,8 +9,12 @@ const BULK_TEMPLATE_HEADERS = ["materialName", "materialSize", "materialGSM"];
 // Full Figma slide scan Phase 4 (Theme 7, Low Stock threshold): reorderLevel
 // is optional -- when unset, Inventory shows no stock badge for that
 // material at all rather than a misleading always-Low or always-In-Stock.
+// Full Figma slide scan Phase 5 (Theme 9): "type" (Reel/Sheet) -- a
+// property of the paper stock itself, per the user's decision, not
+// something chosen per-purchase. Optional; the check constraint on the
+// column itself is the source of truth for the two allowed values.
 const SELECT =
-  "id, materialName:material_name, materialSize:material_size, materialGSM:material_gsm, status, reorderLevel:reorder_level, uom:uom_id(id, name, symbol), createdAt:created_at, updatedAt:updated_at";
+  "id, materialName:material_name, materialSize:material_size, materialGSM:material_gsm, status, reorderLevel:reorder_level, type, uom:uom_id(id, name, symbol), createdAt:created_at, updatedAt:updated_at";
 
 exports.createMaterial = async (req, res) => {
   try {
@@ -45,6 +49,7 @@ exports.createMaterial = async (req, res) => {
         uom_id: req.body.uom || null,
         status: req.body.status || "Active",
         reorder_level: req.body.reorderLevel !== undefined && req.body.reorderLevel !== "" ? req.body.reorderLevel : null,
+        type: req.body.type || null,
         created_by: req.user?.id || null,
       })
       .select(SELECT)
@@ -141,6 +146,7 @@ exports.updateMaterial = async (req, res) => {
       ...(req.body.uom !== undefined && { uom_id: req.body.uom || null }),
       ...(req.body.status !== undefined && { status: req.body.status }),
       ...(req.body.reorderLevel !== undefined && { reorder_level: req.body.reorderLevel === "" ? null : req.body.reorderLevel }),
+      ...(req.body.type !== undefined && { type: req.body.type || null }),
       updated_at: new Date().toISOString(),
       updated_by: req.user?.id || null,
     };
