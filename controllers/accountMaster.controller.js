@@ -380,6 +380,15 @@ exports.getAccountMasterById = async (req, res) => {
     }
 
     const responseData = {
+      // Bug found during Module 15 design investigation (audit-reconciliation.md):
+      // this hand-built response object never carried the account_master's own
+      // id anywhere, so withMongoId(responseData) below would have nothing to
+      // mirror into `_id`. The frontend (view-company/[id].tsx) treats
+      // singleAccountMaster._id as the party's id (opportunity-history filter,
+      // AssignTaskDialog's selectedParties) -- with it always undefined, the
+      // opportunity-history panel silently dropped its partyId filter and
+      // showed every opportunity in the system instead of just this party's.
+      id: am.id,
       companyName: am.companyName.id,
       partyName: am.party.partyName,
       ownerName: am.party.ownerName,
@@ -412,7 +421,7 @@ exports.getAccountMasterById = async (req, res) => {
       createdByObj: am.createdBy,
     };
 
-    res.status(200).json({ success: true, data: responseData });
+    res.status(200).json({ success: true, data: withMongoId(responseData) });
   } catch (error) {
     console.error("Error fetching account master:", error);
     res.status(500).json({ success: false, message: "Failed to fetch account master", error: error.message });
