@@ -266,16 +266,60 @@ exports.getVendorAgeing = async (req, res) => {
     const { data: purchases, error: purErr } = await purQuery;
     if (purErr) throw purErr;
 
+    // Bug found during Module 16 triage (audit-reconciliation.md's carried-forward
+    // "unverified data-integrity concern" in ledger/ageing logic): this endpoint
+    // used to bucket each PO's full gross value by age with no regard for
+    // payments already recorded against it, so a fully-paid-off PO kept
+    // inflating payables ageing forever (purchase_orders has no "Paid" status --
+    // Sent/Partially Received/Received track goods receipt, not payment).
+    // Vendor payments settle a PO one of two ways -- a direct single-PO payment
+    // (vendor_payments.purchase_order_id) or a split across several POs
+    // (vendor_payment_allocations, one row per PO) -- so both are summed and
+    // netted off the PO's gross amount here, matching how getVendorLedger's
+    // running balance already accounts for the same payments in aggregate.
+    // Plain `purchases` rows (the pre-PO flat intake path) have no equivalent
+    // per-record payment link anywhere in the schema, so they can't be netted
+    // the same way -- same documented structural limitation as the payables
+    // ageing bucketing-by-creation-date decision above.
+    const poIds = (pos || []).map((po) => po.id);
+    const paidByPo = {};
+    if (poIds.length) {
+      const { data: directPayments, error: dpErr } = await supabase
+        .from("vendor_payments")
+        .select("purchaseOrderId:purchase_order_id, amount")
+        .in("purchase_order_id", poIds)
+        .eq("is_delete", false);
+      if (dpErr) throw dpErr;
+      (directPayments || []).forEach((p) => {
+        paidByPo[p.purchaseOrderId] = (paidByPo[p.purchaseOrderId] || 0) + Number(p.amount);
+      });
+
+      const { data: allocations, error: allocErr } = await supabase
+        .from("vendor_payment_allocations")
+        .select("purchaseOrderId:purchase_order_id, amountAllocated:amount_allocated")
+        .in("purchase_order_id", poIds);
+      if (allocErr) throw allocErr;
+      (allocations || []).forEach((a) => {
+        paidByPo[a.purchaseOrderId] = (paidByPo[a.purchaseOrderId] || 0) + Number(a.amountAllocated);
+      });
+    }
+
     const today = new Date().toISOString().slice(0, 10);
     const buckets = Object.fromEntries(AGEING_BUCKETS.map((b) => [b, 0]));
 
-    const poRows = (pos || []).map((po) => {
-      const amount = (po.items || []).reduce((sum, it) => sum + Number(it.quantityOrdered) * Number(it.rate), 0);
-      const date = (po.createdAt || "").slice(0, 10);
-      const days = daysBetween(date, today);
-      const bucket = bucketForDays(days);
-      buckets[bucket] += amount;
-      return { type: "Purchase Order", reference: po.poNumber, vendor: po.vendor, amount, daysOld: days, bucket };
+    const poRows = (pos || [])
+      .map((po) => {
+        const gross = (po.items || []).reduce((sum, it) => sum + Number(it.quantityOrdered) * Number(it.rate), 0);
+        const amount = gross - (paidByPo[po.id] || 0);
+        const date = (po.createdAt || "").slice(0, 10);
+        const days = daysBetween(date, today);
+        const bucket = bucketForDays(days);
+        return { type: "Purchase Order", reference: po.poNumber, vendor: po.vendor, amount, daysOld: days, bucket };
+      })
+      // A PO paid off in full (or over-allocated) no longer belongs in payables ageing at all.
+      .filter((row) => row.amount > 0);
+    poRows.forEach((row) => {
+      buckets[row.bucket] += row.amount;
     });
 
     const purRows = (purchases || []).map((p) => {
