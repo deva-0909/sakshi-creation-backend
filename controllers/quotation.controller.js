@@ -327,53 +327,61 @@ exports.respondQuotation = async (req, res) => {
   if (result) res.status(200).json({ success: true, message: `Quotation marked ${response}`, data: withMongoId(result.data) });
 };
 
-// Converting spawns a real order via the same transactional RPC order
-// creation already uses (Patch 6), so a converted quotation gets exactly
-// the same atomicity guarantees a normal order does — no separate,
-// untested code path for "order created from a quotation."
+// Module 16 fix (audit-reconciliation.md's carried-forward non-atomic
+// conversion-pattern finding, user approved wrapping all three flagged
+// conversions in dedicated RPCs): this used to check status in JS, call
+// create_order_transactional, then separately update quotations.status to
+// Converted -- a failure between those two steps (or two concurrent
+// conversions of the same quotation) could leave an order created with
+// the quotation still showing Accepted, convertible again into a
+// duplicate order. convert_quotation_transactional locks the quotation
+// row, re-checks status under that lock, creates the order, and updates
+// the quotation's status all in one transaction.
+//
+// Fixing this also surfaced and fixed an unrelated, pre-existing bug:
+// create_order_transactional has 3 overloads (14/16/17 params, added
+// incrementally as order.controller.js's createOrder gained fields), and
+// this endpoint's old call only ever supplied the original 14 -- which
+// live-testing this fix showed Postgres treats as a genuinely ambiguous
+// call ("function ... is not unique"), not a call to the 14-param
+// overload as intended. order.controller.js's own createOrder was
+// unaffected (it always supplies all 17 params, pinning the call
+// unambiguously), but every attempt to convert a quotation to an order
+// through this endpoint alone would have hit that error. The new RPC
+// calls create_order_transactional with all 17 named params explicitly
+// (the 3 newest passed null, matching what a quotation conversion has
+// always populated), which is both atomic and unambiguous.
 exports.convertQuotation = async (req, res) => {
   try {
     const { id } = req.params;
     if (!isValidId(id)) {
       return res.status(400).json({ success: false, message: "Invalid quotation ID" });
     }
-    const { data: quotation } = await supabase.from("quotations").select("*").eq("id", id).eq("is_delete", false).maybeSingle();
+    const { data: quotation } = await supabase.from("quotations").select("id, company_name_id, status").eq("id", id).eq("is_delete", false).maybeSingle();
     if (!quotation) {
       return res.status(404).json({ success: false, message: "Quotation not found" });
-    }
-    if (quotation.status !== "Accepted") {
-      return res.status(400).json({ success: false, message: "Only an Accepted quotation can be converted to an order" });
     }
 
     const { data: company } = await supabase.from("company_names").select("company_name").eq("id", quotation.company_name_id).maybeSingle();
     const initials = deriveInitials(company?.company_name);
-    const specs = quotation.specs || {};
 
-    const { data: orderId, error } = await supabase.rpc("create_order_transactional", {
-      p_company_name_id: quotation.company_name_id,
-      p_party_id: quotation.party_id,
-      p_product_item_id: quotation.product_item_id,
-      p_qty: quotation.qty,
-      p_remarks: quotation.remarks || "",
-      p_file_paths: [],
-      p_created_by: req.user?.id || null,
+    const { data: orderId, error } = await supabase.rpc("convert_quotation_transactional", {
+      p_quotation_id: id,
       p_initials: initials,
-      p_size: quotation.size || "",
-      p_rate: quotation.rate,
-      p_rate_type: quotation.rate_type,
-      p_is_lamination: specs.is_lamination || false,
-      p_lamination_type: specs.is_lamination ? specs.lamination_type || "" : "",
-      p_is_gst: quotation.is_gst !== false,
+      p_updated_by: req.user?.id || null,
     });
-    if (error) throw error;
+    if (error) {
+      // The RPC's own status guard raises a plain Postgres exception, not a
+      // distinct error code -- match by message so the client still gets
+      // the same 400 it got from the old JS-side check.
+      if (error.message && error.message.includes("Only an Accepted quotation")) {
+        return res.status(400).json({ success: false, message: error.message });
+      }
+      throw error;
+    }
 
-    const { data, error: updateError } = await supabase
-      .from("quotations")
-      .update({ status: "Converted", order_id: orderId, updated_by: req.user?.id || null, updated_at: new Date().toISOString() })
-      .eq("id", id)
-      .select(SELECT)
-      .single();
-    if (updateError) throw updateError;
+    const { data, error: fetchError } = await supabase.from("quotations").select(SELECT).eq("id", id).single();
+    if (fetchError) throw fetchError;
 
     await recordHistory({ quotationId: id, fromStatus: "Accepted", toStatus: "Converted", changedBy: req.user?.id || null });
     logAudit({ req, action: "update", module: "quotation", recordId: id, newValue: { status: "Converted", orderId } });
