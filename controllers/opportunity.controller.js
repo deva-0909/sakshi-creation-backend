@@ -394,6 +394,17 @@ exports.getOpportunityActivities = async (req, res) => {
 // there is no real customer party to quote against before that. Reuses
 // the same create_quotation_transactional RPC createQuotation calls,
 // rather than duplicating its logic, so both paths stay in sync.
+// Module 16 fix (audit-reconciliation.md's carried-forward non-atomic
+// conversion-pattern finding): this used to check stage/party_id/
+// quotation_id in JS, call create_quotation_transactional, then
+// separately update opportunities.quotation_id -- a failure between those
+// two steps (or two concurrent conversions of the same opportunity) could
+// leave a quotation created with quotation_id still null on the
+// opportunity, convertible again into a second, orphaned quotation with
+// nothing pointing back at it. convert_opportunity_to_quotation_
+// transactional locks the opportunity row, re-checks stage/party_id/
+// quotation_id under that lock, creates the quotation, and sets
+// quotation_id all in one transaction.
 exports.convertOpportunityToQuotation = async (req, res) => {
   try {
     const { id } = req.params;
@@ -402,18 +413,12 @@ exports.convertOpportunityToQuotation = async (req, res) => {
     }
     const { data: opp } = await supabase
       .from("opportunities")
-      .select("id, stage, party_id, company_name_id, quotation_id, opportunity_number")
+      .select("id, company_name_id")
       .eq("id", id)
       .eq("is_delete", false)
       .maybeSingle();
     if (!opp) {
       return res.status(404).json({ success: false, message: "Opportunity not found" });
-    }
-    if (opp.stage !== "Won" || !opp.party_id) {
-      return res.status(400).json({ success: false, message: "Only a Won opportunity (with its converted party) can be converted to a quotation" });
-    }
-    if (opp.quotation_id) {
-      return res.status(400).json({ success: false, message: "This opportunity has already been converted to a quotation" });
     }
 
     const { productItem, qty, size, specs, rateType, rate, printingrate, isGst, gstPercentage, totalAmount, validUntil, remarks } = req.body;
@@ -428,9 +433,8 @@ exports.convertOpportunityToQuotation = async (req, res) => {
     const { data: company } = await supabase.from("company_names").select("id, company_name").eq("id", opp.company_name_id).maybeSingle();
     const initials = deriveInitials(company?.company_name || "");
 
-    const { data: quotationId, error } = await supabase.rpc("create_quotation_transactional", {
-      p_company_name_id: opp.company_name_id,
-      p_party_id: opp.party_id,
+    const { data: quotationId, error } = await supabase.rpc("convert_opportunity_to_quotation_transactional", {
+      p_opportunity_id: id,
       p_product_item_id: productItem,
       p_qty: parseInt(qty, 10),
       p_size: size || null,
@@ -442,15 +446,22 @@ exports.convertOpportunityToQuotation = async (req, res) => {
       p_gst_percentage: gstPercentage !== undefined ? parseFloat(gstPercentage) : null,
       p_total_amount: totalAmount !== undefined ? parseFloat(totalAmount) : null,
       p_valid_until: validUntil || null,
-      p_remarks: remarks || `Converted from opportunity ${opp.opportunity_number}`,
+      p_remarks: remarks || null,
       p_created_by: req.user?.id || null,
       p_initials: initials,
     });
-    if (error) throw error;
+    if (error) {
+      if (
+        (error.message && error.message.includes("Only a Won opportunity")) ||
+        (error.message && error.message.includes("already been converted"))
+      ) {
+        return res.status(400).json({ success: false, message: error.message });
+      }
+      throw error;
+    }
 
-    await supabase.from("opportunities").update({ quotation_id: quotationId, updated_by: req.user?.id || null, updated_at: new Date().toISOString() }).eq("id", id);
-
-    const { data: populated } = await supabase.from("opportunities").select(SELECT).eq("id", id).single();
+    const { data: populated, error: fetchErr } = await supabase.from("opportunities").select(SELECT).eq("id", id).single();
+    if (fetchErr) throw fetchErr;
     logAudit({ req, action: "update", module: "opportunity", recordId: id, newValue: { quotationId } });
 
     res.status(201).json({ success: true, message: "Opportunity converted to quotation", data: withMongoId(populated) });
