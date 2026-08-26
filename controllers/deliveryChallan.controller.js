@@ -3,8 +3,11 @@
 // over time (same pattern as GRN's partial receipt against a PO), each
 // carrying its own quantity/vehicle/package/proof-of-delivery details.
 // Orders in this app are single-product/single-qty rows (no line-items
-// table), so unlike GRN/Purchase Return there's no per-item RPC needed --
-// a plain validated insert is enough.
+// table), so unlike GRN/Purchase Return the insert itself needs no
+// per-item RPC loop -- but the over-delivery guard does go through
+// create_delivery_challan_transactional (Module 16 fix, see the note in
+// createDeliveryChallan below) so it can lock the order row and close a
+// check-then-insert race that used to let concurrent requests over-deliver.
 const supabase = require("../lib/supabaseClient");
 const { isValidId, withMongoId, deriveInitials } = require("../lib/helpers");
 const { logAudit } = require("../lib/audit");
@@ -23,8 +26,6 @@ const SELECT = `
   createdBy:created_by(id, firstName:first_name, lastName:last_name)
 `;
 
-const ACTIVE_STATUSES = ["Dispatched", "Delivered"];
-
 exports.createDeliveryChallan = async (req, res) => {
   try {
     const { orderId, quantityDelivered, vehicleNumber, vehicleType, driverName, driverContact, packageCount, packageWeight, deliveryDate, notes } = req.body;
@@ -42,47 +43,49 @@ exports.createDeliveryChallan = async (req, res) => {
       return res.status(404).json({ success: false, message: "Order not found" });
     }
 
-    const { data: existingChallans } = await supabase
-      .from("delivery_challans")
-      .select("quantity_delivered")
-      .eq("order_id", orderId)
-      .eq("is_delete", false)
-      .in("status", ACTIVE_STATUSES);
-    const alreadyDelivered = (existingChallans || []).reduce((sum, c) => sum + Number(c.quantity_delivered), 0);
-    const remaining = Number(order.qty) - alreadyDelivered;
-    if (Number(quantityDelivered) > remaining) {
-      return res.status(400).json({
-        success: false,
-        message: `Cannot deliver ${quantityDelivered} against an order with only ${remaining} remaining to deliver`,
-      });
-    }
-
     const { data: company } = await supabase.from("company_names").select("id, company_name").eq("id", order.company_name_id).maybeSingle();
     const initials = deriveInitials(company?.company_name);
-    const { data: challanNumber, error: numErr } = await supabase.rpc("next_document_number", {
-      p_doc_type: "delivery_challan",
+
+    // Module 16 triage (audit-reconciliation.md's carried-forward
+    // deliveryChallan.controller.js data-integrity flag): the over-delivery
+    // guard used to be a plain JS check-then-insert (read existing challans'
+    // sum, compare, then separately insert) with no locking and nothing
+    // enforcing it at the DB level, so two concurrent requests against the
+    // same order could both read the same "remaining" value, both pass, and
+    // jointly over-deliver. create_delivery_challan_transactional closes
+    // that race by locking the order row before computing/checking the
+    // remaining quantity, so concurrent calls for the same order serialize
+    // instead of racing -- same shape as this codebase's other
+    // check-then-guard RPCs (create_order_transactional and friends), just
+    // applied here for the first time to an already-shipped endpoint.
+    const { data: challanId, error: rpcErr } = await supabase.rpc("create_delivery_challan_transactional", {
+      p_order_id: orderId,
+      p_company_name_id: order.company_name_id,
+      p_party_id: order.party_id,
+      p_quantity_delivered: Number(quantityDelivered),
+      p_vehicle_number: vehicleNumber || null,
+      p_vehicle_type: vehicleType || null,
+      p_driver_name: driverName || null,
+      p_driver_contact: driverContact || null,
+      p_package_count: packageCount !== undefined && packageCount !== "" ? Number(packageCount) : null,
+      p_package_weight: packageWeight !== undefined && packageWeight !== "" ? Number(packageWeight) : null,
+      p_delivery_date: deliveryDate || null,
+      p_notes: notes || null,
+      p_created_by: req.user?.id || null,
       p_initials: initials,
     });
-    if (numErr) throw numErr;
+    if (rpcErr) {
+      // The RPC's own over-delivery guard raises a plain Postgres exception
+      // (not a distinct error code) -- match it by message so the client
+      // still gets the same 400 + human-readable text it got from the old
+      // JS-side check, instead of a generic 500.
+      if (rpcErr.message && rpcErr.message.includes("remaining to deliver")) {
+        return res.status(400).json({ success: false, message: rpcErr.message });
+      }
+      throw rpcErr;
+    }
 
-    const insertPayload = {
-      challan_number: challanNumber,
-      order_id: orderId,
-      company_name_id: order.company_name_id,
-      party_id: order.party_id,
-      quantity_delivered: Number(quantityDelivered),
-      vehicle_number: vehicleNumber || null,
-      vehicle_type: vehicleType || null,
-      driver_name: driverName || null,
-      driver_contact: driverContact || null,
-      package_count: packageCount !== undefined && packageCount !== "" ? Number(packageCount) : null,
-      package_weight: packageWeight !== undefined && packageWeight !== "" ? Number(packageWeight) : null,
-      delivery_date: deliveryDate || new Date().toISOString().slice(0, 10),
-      notes: notes || null,
-      created_by: req.user?.id || null,
-    };
-
-    const { data: created, error } = await supabase.from("delivery_challans").insert(insertPayload).select(SELECT).single();
+    const { data: created, error } = await supabase.from("delivery_challans").select(SELECT).eq("id", challanId).single();
     if (error) throw error;
 
     logAudit({ req, action: "create", module: "deliverychallan", recordId: created.id, newValue: created });
