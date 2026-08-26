@@ -165,11 +165,14 @@ exports.createOpportunity = async (req, res) => {
 
 exports.getAllOpportunities = async (req, res) => {
   try {
-    const { stage, partyId, assignedTo, search, page, limit } = req.query;
+    const { stage, partyId, assignedTo, search, page, limit, companyName } = req.query;
     const paginate = page !== undefined || limit !== undefined;
 
     let query = supabase.from("opportunities").select(SELECT, { count: "exact" }).eq("is_delete", false).order("created_at", { ascending: false });
     if (stage) query = query.eq("stage", stage);
+    // Mobile/toggle/seed audit (2026-08-26), Phase C: companyName param
+    // added -- previously always mixed both companies' opportunities.
+    if (companyName) query = query.eq("company_name_id", companyName);
     // Powers the party detail page's "opportunity history" panel (Module 7
     // design decision) without a separate endpoint -- a party's won/lost
     // deals are just opportunities filtered by their own party_id.

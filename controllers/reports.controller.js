@@ -21,8 +21,12 @@ const ORDER_REPORT_SELECT = `
 // "Delivered" order status).
 exports.getDelayedJobs = async (req, res) => {
   try {
+    // Mobile/toggle/seed audit (2026-08-26), Phase C: this report previously
+    // had no companyName param at all, so it always mixed both companies'
+    // delayed jobs together.
+    const { companyName } = req.query;
     const today = new Date().toISOString().slice(0, 10);
-    const { data: orders, error } = await supabase
+    let query = supabase
       .from("orders")
       .select(ORDER_REPORT_SELECT)
       .eq("is_delete", false)
@@ -30,6 +34,8 @@ exports.getDelayedJobs = async (req, res) => {
       .not("expected_delivery_date", "is", null)
       .lt("expected_delivery_date", today)
       .order("expected_delivery_date", { ascending: true });
+    if (companyName) query = query.eq("company_name_id", companyName);
+    const { data: orders, error } = await query;
     if (error) throw error;
 
     const orderIds = (orders || []).map((o) => o.id);
@@ -67,13 +73,24 @@ exports.getDelayedJobs = async (req, res) => {
 // expected delivery date.
 exports.getCustomerPerformance = async (req, res) => {
   try {
-    const { data: orders, error } = await supabase
+    // Mobile/toggle/seed audit (2026-08-26), Phase C: companyName param
+    // added -- previously always mixed both companies' orders/revenue.
+    // Invoices aren't filtered by it directly (an invoice-only party, see
+    // the missing-party backfill below, may have no matching order at all);
+    // instead the byParty rollup itself is company-scoped by only ever
+    // being seeded from this company's orders.
+    const { companyName } = req.query;
+    let ordersQuery = supabase
       .from("orders")
       .select("id, qty, expectedDeliveryDate:expected_delivery_date, party:party_id(id, partyName:party_name)")
       .eq("is_delete", false);
+    if (companyName) ordersQuery = ordersQuery.eq("company_name_id", companyName);
+    const { data: orders, error } = await ordersQuery;
     if (error) throw error;
 
-    const { data: invoices } = await supabase.from("invoices").select("partyId:party_id, grandTotal:grand_total").eq("is_delete", false).neq("status", "Cancelled");
+    let invoicesQuery = supabase.from("invoices").select("partyId:party_id, grandTotal:grand_total").eq("is_delete", false).neq("status", "Cancelled");
+    if (companyName) invoicesQuery = invoicesQuery.eq("company_name_id", companyName);
+    const { data: invoices } = await invoicesQuery;
 
     const { data: challans } = await supabase
       .from("delivery_challans")
@@ -145,13 +162,23 @@ exports.getCustomerPerformance = async (req, res) => {
 // for it, same as every other "who owns this" question in this app.
 exports.getSalespersonPerformance = async (req, res) => {
   try {
-    const { data: orders, error } = await supabase
+    // Mobile/toggle/seed audit (2026-08-26), Phase C: companyName param
+    // added -- previously always mixed both companies' orders/revenue.
+    // Invoices and the missing-order backfill below are filtered by the
+    // same companyName so cross-company revenue can't leak in through
+    // either path.
+    const { companyName } = req.query;
+    let ordersQuery = supabase
       .from("orders")
       .select("id, qty, partyId:party_id, createdBy:created_by(id, firstName:first_name, lastName:last_name)")
       .eq("is_delete", false);
+    if (companyName) ordersQuery = ordersQuery.eq("company_name_id", companyName);
+    const { data: orders, error } = await ordersQuery;
     if (error) throw error;
 
-    const { data: invoices } = await supabase.from("invoices").select("orderId:order_id, grandTotal:grand_total").eq("is_delete", false).neq("status", "Cancelled");
+    let invoicesQuery = supabase.from("invoices").select("orderId:order_id, grandTotal:grand_total").eq("is_delete", false).neq("status", "Cancelled");
+    if (companyName) invoicesQuery = invoicesQuery.eq("company_name_id", companyName);
+    const { data: invoices } = await invoicesQuery;
     const revenueByOrder = (invoices || []).reduce((acc, inv) => {
       acc[inv.orderId] = (acc[inv.orderId] || 0) + Number(inv.grandTotal || 0);
       return acc;

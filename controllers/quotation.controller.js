@@ -155,11 +155,14 @@ exports.createQuotation = async (req, res) => {
 
 exports.getAllQuotations = async (req, res) => {
   try {
-    const { status, search, page, limit, partyId } = req.query;
+    const { status, search, page, limit, partyId, companyName } = req.query;
     const paginate = page !== undefined || limit !== undefined;
 
     let query = supabase.from("quotations").select(SELECT, { count: "exact" }).eq("is_delete", false).order("created_at", { ascending: false });
     if (status) query = query.eq("status", status);
+    // Mobile/toggle/seed audit (2026-08-26), Phase C: companyName param
+    // added -- previously always mixed both companies' quotations.
+    if (companyName) query = query.eq("company_name_id", companyName);
     // Module 15: powers the party 360 view's quotation history panel --
     // this filter didn't exist before even though quotations.party_id
     // always has (orders/invoices/receipts/opportunities already support

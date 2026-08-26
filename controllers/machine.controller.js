@@ -57,12 +57,17 @@ exports.createMachine = async (req, res) => {
 
 exports.getAllMachines = async (req, res) => {
   try {
-    const { category, status, search, page, limit } = req.query;
+    const { category, status, search, page, limit, companyName } = req.query;
     const paginate = page !== undefined || limit !== undefined;
 
     let query = supabase.from("machines").select(SELECT, { count: "exact" }).eq("is_delete", false).order("created_at", { ascending: false });
     if (category) query = query.eq("category", category);
     if (status) query = query.eq("status", status);
+    // Mobile/toggle/seed audit (2026-08-26), Phase C: companyName param
+    // added -- previously always mixed both companies' machines, and the
+    // Advance Stage machine picker (job-card/view/[id].tsx) could offer a
+    // machine belonging to the other company for a job card's stage.
+    if (companyName) query = query.eq("company_name_id", companyName);
     if (search && String(search).trim()) {
       query = query.ilike("machine_name", `%${String(search).trim()}%`);
     }

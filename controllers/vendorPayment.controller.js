@@ -155,12 +155,15 @@ exports.createVendorPaymentAllocation = async (req, res) => {
 
 exports.getAllVendorPayments = async (req, res) => {
   try {
-    const { vendorId, purchaseOrderId, search, page, limit } = req.query;
+    const { vendorId, purchaseOrderId, search, page, limit, companyName } = req.query;
     const paginate = page !== undefined || limit !== undefined;
 
     let query = supabase.from("vendor_payments").select(SELECT, { count: "exact" }).eq("is_delete", false).order("created_at", { ascending: false });
     if (vendorId) query = query.eq("vendor_id", vendorId);
     if (purchaseOrderId) query = query.eq("purchase_order_id", purchaseOrderId);
+    // Mobile/toggle/seed audit (2026-08-26), Phase C: companyName param
+    // added -- previously always mixed both companies' vendor payments.
+    if (companyName) query = query.eq("company_name_id", companyName);
     if (search && String(search).trim()) query = query.ilike("payment_number", `%${String(search).trim()}%`);
     // Multi-role audit fix (Finding 1): authorizeView() attaches this when the
     // caller's role only has view_own (not view_global) for this module.

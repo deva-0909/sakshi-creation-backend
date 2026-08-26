@@ -32,16 +32,21 @@ const SELECT = `
 exports.getInventoryByCategory = async (req, res) => {
   try {
     const { category } = req.params;
+    // Mobile/toggle/seed audit (2026-08-26), Phase C: companyName param
+    // added -- previously always mixed both companies' inventory entries.
+    const { companyName } = req.query;
     if (!VALID_CATEGORIES.includes(category)) {
       return res.status(400).json({ success: false, message: "Invalid category" });
     }
 
-    const { data, error } = await supabase
+    let query = supabase
       .from("inventories")
       .select(SELECT)
       .eq("category", category)
       .eq("is_delete", false)
       .order("date", { ascending: false });
+    if (companyName) query = query.eq("company_name_id", companyName);
+    const { data, error } = await query;
 
     if (error) throw error;
 
@@ -54,24 +59,31 @@ exports.getInventoryByCategory = async (req, res) => {
 exports.getInventorySummary = async (req, res) => {
   try {
     const { category } = req.params;
+    // Mobile/toggle/seed audit (2026-08-26), Phase C: companyName param
+    // added -- previously always mixed both companies' inventory entries.
+    const { companyName } = req.query;
     if (!VALID_CATEGORIES.includes(category)) {
       return res.status(400).json({ success: false, message: "Invalid category" });
     }
 
-    const { data: inward, error: inErr } = await supabase
+    let inwardQuery = supabase
       .from("inventories")
       .select("quantity")
       .eq("category", category)
       .eq("type", "inward")
       .eq("is_delete", false);
+    if (companyName) inwardQuery = inwardQuery.eq("company_name_id", companyName);
+    const { data: inward, error: inErr } = await inwardQuery;
     if (inErr) throw inErr;
 
-    const { data: outward, error: outErr } = await supabase
+    let outwardQuery = supabase
       .from("inventories")
       .select("quantity")
       .eq("category", category)
       .eq("type", "outward")
       .eq("is_delete", false);
+    if (companyName) outwardQuery = outwardQuery.eq("company_name_id", companyName);
+    const { data: outward, error: outErr } = await outwardQuery;
     if (outErr) throw outErr;
 
     const lastPurchase = (inward || []).reduce((sum, r) => sum + Number(r.quantity || 0), 0);

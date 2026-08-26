@@ -502,16 +502,33 @@ exports.getStageHistory = async (req, res) => {
 // output this report deliberately avoids baking in silently.
 exports.getWastageReport = async (req, res) => {
   try {
-    const { from, to, materialId, stage } = req.query;
+    const { from, to, materialId, stage, companyName } = req.query;
     let query = supabase
       .from("job_card_stages")
-      .select("stage, wastedSheet:wasted_sheet, updatedAt:updated_at, wastageReason:wastage_reason, material:wastage_material_id(id, materialName:material_name)")
+      .select("stage, wastedSheet:wasted_sheet, updatedAt:updated_at, wastageReason:wastage_reason, material:wastage_material_id(id, materialName:material_name), jobCardId:job_card_id")
       .not("wastage_material_id", "is", null)
       .gt("wasted_sheet", 0);
     if (stage) query = query.eq("stage", stage);
     if (materialId) query = query.eq("wastage_material_id", materialId);
     if (from) query = query.gte("updated_at", from);
     if (to) query = query.lte("updated_at", to);
+
+    // Mobile/toggle/seed audit (2026-08-26), Phase C: companyName param
+    // added -- previously always mixed both companies' wastage. Neither
+    // job_card_stages nor job_cards carries a company column directly, so
+    // scope via job_cards -> orders.company_name_id first, then filter this
+    // query's job_card_id to that set (a two-step lookup rather than a
+    // fragile embedded-relation filter).
+    if (companyName) {
+      const { data: companyOrders } = await supabase.from("orders").select("id").eq("company_name_id", companyName);
+      const orderIds = (companyOrders || []).map((o) => o.id);
+      let jobCardIds = [];
+      if (orderIds.length) {
+        const { data: companyJobCards } = await supabase.from("job_cards").select("id").in("order_id", orderIds);
+        jobCardIds = (companyJobCards || []).map((jc) => jc.id);
+      }
+      query = query.in("job_card_id", jobCardIds.length ? jobCardIds : ["00000000-0000-0000-0000-000000000000"]);
+    }
 
     const { data: rows, error } = await query;
     if (error) throw error;

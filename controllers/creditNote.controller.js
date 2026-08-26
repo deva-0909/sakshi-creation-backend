@@ -149,13 +149,16 @@ exports.cancelCreditNote = async (req, res) => {
 
 exports.getAllCreditNotes = async (req, res) => {
   try {
-    const { invoiceId, partyId, status, search, page, limit } = req.query;
+    const { invoiceId, partyId, status, search, page, limit, companyName } = req.query;
     const paginate = page !== undefined || limit !== undefined;
 
     let query = supabase.from("credit_notes").select(SELECT, { count: "exact" }).eq("is_delete", false).order("created_at", { ascending: false });
     if (invoiceId) query = query.eq("invoice_id", invoiceId);
     if (partyId) query = query.eq("party_id", partyId);
     if (status) query = query.eq("status", status);
+    // Mobile/toggle/seed audit (2026-08-26), Phase C: companyName param
+    // added -- previously always mixed both companies' credit notes.
+    if (companyName) query = query.eq("company_name_id", companyName);
     if (search && String(search).trim()) query = query.ilike("credit_note_number", `%${String(search).trim()}%`);
     // Multi-role audit fix (Finding 1): authorizeView() attaches this when the
     // caller's role only has view_own (not view_global) for this module.
