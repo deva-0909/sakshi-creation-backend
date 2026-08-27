@@ -163,4 +163,17 @@ const updateOrderSchema = createOrderSchema.partial().extend({
   bookletBinderGst: numericField.optional(),
 }).passthrough();
 
-module.exports = { createOrderSchema, updateOrderSchema };
+// Order Form batch-create (Godown Manager Figma audit, Patch 107): the
+// multi-row inline entry form collects one companyName/createdBy for the
+// whole form plus N order rows. Row-level shape is NOT re-declared here --
+// the controller reparses each row through createOrderSchema itself (with
+// companyName merged in) so the two paths can never drift apart. This
+// schema only guards the batch envelope: companyName present, and at
+// least one row supplied.
+const createOrderFormSchema = z.object({
+  companyName: idField,
+  createdBy: idField.optional(),
+  orders: z.array(z.record(z.any())).min(1, "At least one order row is required"),
+});
+
+module.exports = { createOrderSchema, updateOrderSchema, createOrderFormSchema };

@@ -3,6 +3,7 @@ const { isValidId, withMongoId, deriveInitials } = require("../lib/helpers");
 const { logAudit } = require("../lib/audit");
 const { latestRate } = require("./costing.controller");
 const { computeKantanLengthCm, computeEstimatedBoxCost } = require("../lib/boxCalculations");
+const { createOrderSchema } = require("../validators/order.validator");
 
 const ORDER_SELECT = `
   id, qty, remarks, filePaths:file_paths, status, orderNumber:order_number, number, size,
@@ -33,6 +34,7 @@ const ORDER_SELECT = `
   boxLengthCm:box_length_cm, boxWidthCm:box_width_cm, boxHeightCm:box_height_cm,
   kantanLengthCm:kantan_length_cm, estimatedBoxCost:estimated_box_cost,
   paperMaterial:paper_material_id(id, materialName:material_name, materialGSM:material_gsm),
+  orderForm:order_form_id(id, orderFormNumber:form_number),
   createdAt:created_at, updatedAt:updated_at,
   companyName:company_name_id(id, companyName:company_name),
   party:party_id(id, partyName:party_name, address, contactPerson:contact_person, personMobileNo:person_mobile_no, personWhatsAppNo:person_whatsapp_no, GSTNo:gst_no),
@@ -305,6 +307,115 @@ exports.createOrder = async (req, res) => {
   }
 };
 
+// Order Form batch create (Godown Manager Figma audit, Patch 107): the
+// Figma "Order Form" concept (e.g. "QP-001") groups several individual
+// order rows entered together via one multi-row inline form. Mirrors
+// createOrder's own field set and validation but inserts one order_forms
+// row plus N linked orders rows, all inside a single Postgres transaction
+// (create_order_form_transactional -- same "sequence increment + insert +
+// party promotion, all-or-nothing" shape as create_order_transactional
+// above, just looped over N rows) so a mid-batch failure can never leave a
+// form with only some of its rows persisted, or rows whose numbers were
+// consumed but never actually saved.
+exports.createOrderForm = async (req, res) => {
+  try {
+    const { companyName, orders, createdBy } = req.body;
+
+    if (!isValidId(companyName)) {
+      return res.status(400).json({ success: false, message: "Invalid company ID format" });
+    }
+    if (!Array.isArray(orders) || orders.length === 0) {
+      return res.status(400).json({ success: false, message: "At least one order row is required" });
+    }
+
+    const { data: company } = await supabase.from("company_names").select("id, company_name").eq("id", companyName).maybeSingle();
+    if (!company) {
+      return res.status(404).json({ success: false, message: "Company not found" });
+    }
+
+    // Reuse createOrderSchema per row (companyName merged in) rather than
+    // re-declaring row-level validation -- same rules the single "Place
+    // New Order" dialog already enforces, just applied N times.
+    const parsedRows = [];
+    for (let i = 0; i < orders.length; i++) {
+      const result = createOrderSchema.safeParse({ ...orders[i], companyName });
+      if (!result.success) {
+        return res.status(400).json({
+          success: false,
+          message: `Row ${i + 1}: ${result.error.issues.map((issue) => issue.message).join(", ")}`,
+        });
+      }
+      const row = result.data;
+      if (!isValidId(row.party) || !isValidId(row.productItem)) {
+        return res.status(400).json({ success: false, message: `Row ${i + 1}: Invalid Party or Product Item ID` });
+      }
+      const { data: partyRow } = await supabase.from("parties").select("id, party_tag").eq("id", row.party).eq("is_delete", false).maybeSingle();
+      if (!partyRow) {
+        return res.status(404).json({ success: false, message: `Row ${i + 1}: Party not found` });
+      }
+      parsedRows.push({
+        party: row.party,
+        productItem: row.productItem,
+        qty: parseInt(row.qty, 10),
+        remarks: row.remarks || "",
+        filePaths: processFileList(row.filePaths),
+        isGst: row.isGst !== false,
+        size: row.size || "",
+        rate: row.rate !== undefined ? String(row.rate) : "",
+        rateType: row.rateType || "",
+        isLamination: row.isLamination !== undefined ? row.isLamination : false,
+        laminationType: row.isLamination ? row.laminationType || "" : "",
+        customerPoNumber: row.customerPoNumber || "",
+        priority: row.priority || "",
+        expectedDeliveryDate: row.expectedDeliveryDate || "",
+        ply: row.ply !== undefined && row.ply !== null ? String(row.ply) : "",
+        deckal: row.deckal !== undefined && row.deckal !== null ? String(row.deckal) : "",
+        gsm: row.gsm !== undefined && row.gsm !== null ? String(row.gsm) : "",
+        orderFrom: row.orderFrom || "",
+        orderDate: row.orderDate || "",
+        dyeNumber: row.dyeNumber || "",
+        dyeSize: row.dyeSize || "",
+        dyeSheetSize: row.dyeSheetSize || "",
+        dyeRemark: row.dyeRemark || "",
+        godownRemark: row.godownRemark || "",
+        factoryRemarks: row.factoryRemarks || "",
+        orderType: row.orderType || "",
+        deliveryDestination: row.deliveryDestination || "",
+      });
+    }
+
+    const initials = deriveInitials(company.company_name);
+
+    const { data, error } = await supabase.rpc("create_order_form_transactional", {
+      p_company_name_id: companyName,
+      p_created_by: createdBy || req.user?.id || null,
+      p_initials: initials,
+      p_orders: parsedRows,
+    });
+    if (error) throw error;
+
+    const result = Array.isArray(data) ? data[0] : data;
+    const { data: populatedOrders } = await supabase
+      .from("orders")
+      .select(ORDER_SELECT)
+      .eq("order_form_id", result.order_form_id)
+      .order("created_at", { ascending: true });
+
+    res.status(201).json({
+      success: true,
+      message: "Order form created successfully",
+      data: {
+        orderFormId: result.order_form_id,
+        orderFormNumber: result.form_number,
+        orders: withMongoId(populatedOrders || []),
+      },
+    });
+  } catch (error) {
+    console.error("Create order form error:", error);
+    res.status(500).json({ success: false, message: "Failed to create order form", error: error.message });
+  }
+};
+
 exports.getAllOrders = async (req, res) => {
   try {
     const { page = 1, limit = 10, status, companyName, party, orderFrom } = req.query;
@@ -333,9 +444,56 @@ exports.getAllOrders = async (req, res) => {
     const { data, error, count } = await query;
     if (error) throw error;
 
+    // Production-tracking-panel Figma audit (2026-08-27): the QP "Order In"
+    // list's expandable per-row panel (Unit/Start Date/Pasteing/Pining/Rs
+    // For/Kantan/Kantan Deckal/Delivery Date) is the exact same data the
+    // Factory job_card_stages row already carries (see the "QP Factory-stage
+    // Kantan checklist" fix in claude/qp-box-manufacturing-kantan-figma-
+    // audit.md, Patch 66) -- this is a pure surfacing addition, not a new
+    // concept. A second, batched lookup (rather than embedding job_cards in
+    // ORDER_SELECT itself) keeps this scoped to just this list endpoint and
+    // avoids the "fragile embedded-relation filter" pitfall this codebase
+    // already avoids elsewhere (see the wastage-report companyName comment
+    // above) -- job_card_stages has at most one row per (job_card, stage),
+    // so finding the Factory row in JS is simple and cheap at this volume.
+    const orderIds = (data || []).map((o) => o.id);
+    let jobCardFactoryByOrderId = {};
+    if (orderIds.length) {
+      const { data: jobCardRows } = await supabase
+        .from("job_cards")
+        .select(
+          `id, orderId:order_id, currentStage:current_stage,
+           stages:job_card_stages(stage, status, startedAt:started_at, completedAt:completed_at,
+             unitNumber:unit_number, pasteingStatus:pasteing_status, piningStatus:pining_status,
+             rsFor:rs_for, kantan, kantanDeckal:kantan_deckal, factoryDeliveryDate:factory_delivery_date)`
+        )
+        .in("order_id", orderIds)
+        .eq("is_delete", false);
+      for (const jc of jobCardRows || []) {
+        const factoryStage = (jc.stages || []).find((s) => s.stage === "Factory");
+        jobCardFactoryByOrderId[jc.orderId] = {
+          jobCardId: jc.id,
+          currentStage: jc.currentStage,
+          unit: factoryStage?.unitNumber ?? null,
+          startDate: factoryStage?.startedAt ?? null,
+          pasting: factoryStage?.pasteingStatus ?? null,
+          pining: factoryStage?.piningStatus ?? null,
+          rsFor: factoryStage?.rsFor ?? null,
+          kantan: factoryStage?.kantan ?? null,
+          kantanDeckal: factoryStage?.kantanDeckal ?? null,
+          finishDate: factoryStage?.factoryDeliveryDate ?? null,
+          status: factoryStage?.status ?? null,
+        };
+      }
+    }
+    const dataWithProductionPanel = (data || []).map((o) => ({
+      ...o,
+      productionPanel: jobCardFactoryByOrderId[o.id] || null,
+    }));
+
     res.status(200).json({
       success: true,
-      data: withMongoId(data),
+      data: withMongoId(dataWithProductionPanel),
       pagination: {
         currentPage: pageNum,
         totalPages: Math.ceil(count / limitNum),
