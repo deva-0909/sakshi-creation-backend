@@ -23,6 +23,7 @@ const ORDER_SELECT = `
   bookletBinderSubPaper:booklet_binder_sub_paper, bookletBinderUsedPaper:booklet_binder_used_paper,
   bookletBinderRateBook:booklet_binder_rate_book, bookletBinderTotalAmount:booklet_binder_total_amount,
   bookletBinderGst:booklet_binder_gst,
+  bookletBinderCoveredName:booklet_binder_covered_name, bookletBinderLaminatedName:booklet_binder_laminated_name,
   customerPoNumber:customer_po_number, priority, expectedDeliveryDate:expected_delivery_date,
   orderFrom:order_from, orderDate:order_date, dyeNumber:dye_number, dyeSize:dye_size,
   dyeSheetSize:dye_sheet_size, dyeRemark:dye_remark, godownRemark:godown_remark, factoryRemarks:factory_remarks,
@@ -61,7 +62,7 @@ function processFileList(input) {
 
 exports.createOrder = async (req, res) => {
   try {
-    const { companyName, party, productItem, qty, remarks, filePaths, createdBy, isGst, size, rate, rateType, isLamination, laminationType, customerPoNumber, priority, expectedDeliveryDate, ply, deckal, gsm, orderFrom, orderDate, dyeNumber, dyeSize, dyeSheetSize, dyeRemark, godownRemark, factoryRemarks, orderType, deliveryDestination, rawPaperSize, rawPaperUsed, bookletBinderBinding, bookletBinderPagesPerBook, bookletBinderSubPaper, bookletBinderUsedPaper, bookletBinderRateBook, bookletBinderTotalAmount, bookletBinderGst, boxLengthCm, boxWidthCm, boxHeightCm, paperMaterial } = req.body;
+    const { companyName, party, productItem, qty, remarks, filePaths, createdBy, isGst, size, rate, rateType, isLamination, laminationType, customerPoNumber, priority, expectedDeliveryDate, ply, deckal, gsm, orderFrom, orderDate, dyeNumber, dyeSize, dyeSheetSize, dyeRemark, godownRemark, factoryRemarks, orderType, deliveryDestination, rawPaperSize, rawPaperUsed, bookletBinderBinding, bookletBinderPagesPerBook, bookletBinderSubPaper, bookletBinderUsedPaper, bookletBinderRateBook, bookletBinderTotalAmount, bookletBinderGst, bookletBinderCoveredName, bookletBinderLaminatedName, boxLengthCm, boxWidthCm, boxHeightCm, paperMaterial } = req.body;
 
     if (!companyName || !party || !productItem || !qty) {
       return res.status(400).json({ success: false, message: "Company, Party, Product Item, and Quantity are required" });
@@ -206,8 +207,10 @@ exports.createOrder = async (req, res) => {
         .eq("id", orderId);
     }
 
-    // Booklet Binder field-parity fix (Build 2): Binding/Pages-per-Book/Sub
-    // Paper/Used Paper/Rate-per-Book/Total Amount/GST for the Booklet
+    // Booklet Binder field-parity fix (Build 2, extended 2026-08-27 with
+    // Covered Name/Laminated Name from the Figma Task Details re-audit):
+    // Binding/Pages-per-Book/Sub Paper/Used Paper/Rate-per-Book/Total
+    // Amount/GST/Covered Name/Laminated Name for the Booklet
     // Binder stage. These deliberately use their own booklet_binder_-
     // prefixed columns rather than Binder's shared binding/pages_per_book/
     // sub_paper/used_paper/rate_book/total_amount/bindergst columns, so the
@@ -217,7 +220,7 @@ exports.createOrder = async (req, res) => {
     if (
       bookletBinderBinding !== undefined || bookletBinderPagesPerBook !== undefined || bookletBinderSubPaper !== undefined ||
       bookletBinderUsedPaper !== undefined || bookletBinderRateBook !== undefined || bookletBinderTotalAmount !== undefined ||
-      bookletBinderGst !== undefined
+      bookletBinderGst !== undefined || bookletBinderCoveredName !== undefined || bookletBinderLaminatedName !== undefined
     ) {
       await supabase
         .from("orders")
@@ -229,6 +232,8 @@ exports.createOrder = async (req, res) => {
           ...(bookletBinderRateBook !== undefined && { booklet_binder_rate_book: bookletBinderRateBook === null || bookletBinderRateBook === "" ? null : parseFloat(bookletBinderRateBook) }),
           ...(bookletBinderTotalAmount !== undefined && { booklet_binder_total_amount: bookletBinderTotalAmount === null || bookletBinderTotalAmount === "" ? null : parseFloat(bookletBinderTotalAmount) }),
           ...(bookletBinderGst !== undefined && { booklet_binder_gst: bookletBinderGst === null || bookletBinderGst === "" ? null : parseFloat(bookletBinderGst) }),
+          ...(bookletBinderCoveredName !== undefined && { booklet_binder_covered_name: bookletBinderCoveredName || null }),
+          ...(bookletBinderLaminatedName !== undefined && { booklet_binder_laminated_name: bookletBinderLaminatedName || null }),
         })
         .eq("id", orderId);
     }
@@ -527,6 +532,8 @@ exports.updateOrder = async (req, res) => {
       ...(body.bookletBinderRateBook !== undefined && { booklet_binder_rate_book: body.bookletBinderRateBook }),
       ...(body.bookletBinderTotalAmount !== undefined && { booklet_binder_total_amount: body.bookletBinderTotalAmount }),
       ...(body.bookletBinderGst !== undefined && { booklet_binder_gst: body.bookletBinderGst }),
+      ...(body.bookletBinderCoveredName !== undefined && { booklet_binder_covered_name: body.bookletBinderCoveredName }),
+      ...(body.bookletBinderLaminatedName !== undefined && { booklet_binder_laminated_name: body.bookletBinderLaminatedName }),
       ...(body.deliveryDate !== undefined && { delivery_date: body.deliveryDate }),
       ...(body.deliveryTime !== undefined && { delivery_time: body.deliveryTime }),
       ...(body.deliveryStaff && { delivery_staff_id: body.deliveryStaff }),

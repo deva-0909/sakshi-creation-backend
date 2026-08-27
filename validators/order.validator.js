@@ -103,6 +103,12 @@ const createOrderSchema = z.object({
   // here too so createOrder can accept them if ever supplied up front.
   rawPaperSize: z.string().trim().optional(),
   rawPaperUsed: z.string().trim().optional(),
+  // Booklet Binder Task Details Figma re-audit (2026-08-27): Covered Name /
+  // Laminated Name -- free text like bookletBinderBinding/SubPaper/
+  // UsedPaper below, own booklet_binder_-prefixed columns, read/write on
+  // the booklet-binder task-portal via updateOrder.
+  bookletBinderCoveredName: z.string().trim().optional(),
+  bookletBinderLaminatedName: z.string().trim().optional(),
   // Box-costing follow-up (2026-08-25 audit, rebuilt as Patch 101 after
   // Patch 89's backend half was found to have never actually landed):
   // box_length_cm/box_width_cm/box_height_cm feed the Kantan-length and
