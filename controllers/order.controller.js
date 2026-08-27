@@ -25,6 +25,7 @@ const ORDER_SELECT = `
   orderFrom:order_from, orderDate:order_date, dyeNumber:dye_number, dyeSize:dye_size,
   dyeSheetSize:dye_sheet_size, dyeRemark:dye_remark, godownRemark:godown_remark, factoryRemarks:factory_remarks,
   orderType:order_type,
+  deliveryDestination:delivery_destination,
   rawPaperSize:raw_paper_size, rawPaperUsed:raw_paper_used,
   createdAt:created_at, updatedAt:updated_at,
   companyName:company_name_id(id, companyName:company_name),
@@ -55,7 +56,7 @@ function processFileList(input) {
 
 exports.createOrder = async (req, res) => {
   try {
-    const { companyName, party, productItem, qty, remarks, filePaths, createdBy, isGst, size, rate, rateType, isLamination, laminationType, customerPoNumber, priority, expectedDeliveryDate, ply, deckal, gsm, orderFrom, orderDate, dyeNumber, dyeSize, dyeSheetSize, dyeRemark, godownRemark, factoryRemarks, orderType, rawPaperSize, rawPaperUsed, bookletBinderBinding, bookletBinderPagesPerBook, bookletBinderSubPaper, bookletBinderUsedPaper, bookletBinderRateBook, bookletBinderTotalAmount, bookletBinderGst } = req.body;
+    const { companyName, party, productItem, qty, remarks, filePaths, createdBy, isGst, size, rate, rateType, isLamination, laminationType, customerPoNumber, priority, expectedDeliveryDate, ply, deckal, gsm, orderFrom, orderDate, dyeNumber, dyeSize, dyeSheetSize, dyeRemark, godownRemark, factoryRemarks, orderType, deliveryDestination, rawPaperSize, rawPaperUsed, bookletBinderBinding, bookletBinderPagesPerBook, bookletBinderSubPaper, bookletBinderUsedPaper, bookletBinderRateBook, bookletBinderTotalAmount, bookletBinderGst } = req.body;
 
     if (!companyName || !party || !productItem || !qty) {
       return res.status(400).json({ success: false, message: "Company, Party, Product Item, and Quantity are required" });
@@ -224,6 +225,20 @@ exports.createOrder = async (req, res) => {
     await supabase
       .from("orders")
       .update({ order_type: orderType || "New Order" })
+      .eq("id", orderId);
+
+    // QP order-to-factory Figma audit (2026-08-27): Delivery destination
+    // (TO CLIENT / SAKSHI OFFICE / TO GODOWN), shown on the Godown "New
+    // Order" screen in the design -- confirmed with the user as a real
+    // field to build, same "manually set by staff" shape as Order Type
+    // above. Defaults to "SAKSHI OFFICE" (the office's own default holding
+    // point before an order is routed onward to a client or a godown) when
+    // the client doesn't send one -- same unconditional-write-with-default
+    // treatment as orderType above, so every order gets a real starting
+    // value rather than staying null forever for anyone who omits it.
+    await supabase
+      .from("orders")
+      .update({ delivery_destination: deliveryDestination || "SAKSHI OFFICE" })
       .eq("id", orderId);
 
     const { data: populatedOrder } = await supabase.from("orders").select(ORDER_SELECT).eq("id", orderId).single();
@@ -459,6 +474,7 @@ exports.updateOrder = async (req, res) => {
       ...(body.godownRemark !== undefined && { godown_remark: body.godownRemark }),
       ...(body.factoryRemarks !== undefined && { factory_remarks: body.factoryRemarks }),
       ...(body.orderType !== undefined && { order_type: body.orderType }),
+      ...(body.deliveryDestination !== undefined && { delivery_destination: body.deliveryDestination }),
       ...(body.rawPaperSize !== undefined && { raw_paper_size: body.rawPaperSize }),
       ...(body.rawPaperUsed !== undefined && { raw_paper_used: body.rawPaperUsed }),
       updated_at: new Date().toISOString(),

@@ -88,6 +88,14 @@ const createOrderSchema = z.object({
   // that's the design's own starting state for a freshly placed order;
   // Sakshi Creation orders simply never populate or display it.
   orderType: z.enum(["New Order", "New Pending Order", "Ready"]).optional(),
+  // QP order-to-factory Figma audit (2026-08-27): Delivery destination, the
+  // Godown "New Order" screen's Delivery field (TO CLIENT / SAKSHI OFFICE /
+  // TO GODOWN) -- confirmed with the user as a real field to build, same
+  // "pre-production readiness state manually set by staff" shape as
+  // orderType above. QP orders default to "SAKSHI OFFICE" on creation (see
+  // createOrder); Sakshi Creation orders simply never populate or display
+  // it.
+  deliveryDestination: z.enum(["TO CLIENT", "SAKSHI OFFICE", "TO GODOWN"]).optional(),
   // Binder task-portal Figma restore (2026-08-27): Raw Paper Size / Raw
   // Paper Used -- free-text like dyeSize/dyeSheetSize above (e.g. "24x36"
   // for size; a descriptive quantity like "150 sheets" for used), read on
