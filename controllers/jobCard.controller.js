@@ -20,11 +20,16 @@ function stageOrderForCompany(companyName) {
 const SELECT = `
   id, jobCardNumber:job_card_number, qty, priority, dueDate:due_date, status, currentStage:current_stage,
   createdAt:created_at, updatedAt:updated_at,
-  order:order_id!inner(id, orderNumber:order_number, companyName:company_name_id(id, companyName:company_name)),
+  order:order_id!inner(id, orderNumber:order_number, size, companyName:company_name_id(id, companyName:company_name)),
   productItem:product_item_id(id, itemName:item_name),
   assignedTo:assigned_to(id, firstName:first_name, lastName:last_name),
   createdBy:created_by(id, firstName:first_name, lastName:last_name)
 `;
+// Build 5 (Quality Manager Dashboard, sub-item 2 -- cartoon/box inventory by
+// size): added order.size to the embed above purely so the dashboard can
+// group Factory-stage job cards (finished boxes waiting to move to Godown)
+// by their order's box size. Purely additive -- every existing caller of
+// this SELECT already ignores fields it doesn't ask for.
 // order_id and orders.company_name_id are both NOT NULL, so switching the
 // order embed above to !inner doesn't drop any rows for existing callers --
 // it just makes getAllJobCards' new companyName filter below possible

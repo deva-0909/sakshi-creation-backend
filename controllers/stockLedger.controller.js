@@ -77,7 +77,7 @@ exports.getMaterialLedger = async (req, res) => {
 
 exports.getSummary = async (req, res) => {
   try {
-    const { category, companyName } = req.query;
+    const { category, companyName, belowReorder } = req.query;
     if (category && !VALID_CATEGORIES.includes(category)) {
       return res.status(400).json({ success: false, message: "Invalid category" });
     }
@@ -100,13 +100,29 @@ exports.getSummary = async (req, res) => {
       return res.status(200).json({ success: true, data: [] });
     }
 
+    // Build 5 (Quality Manager Dashboard, sub-item 3 -- low-stock alert):
+    // reorderLevel already existed on `materials` (Full Figma slide scan
+    // Phase 4) and was already surfaced on the Inventory list's In
+    // Stock/Low Stock badge -- this just adds the same field (plus a
+    // computed belowReorder flag) to the stock summary response so the
+    // Quality Manager dashboard can flag materials under threshold without
+    // a second round-trip. Purely additive: existing callers that don't
+    // read these two new fields are unaffected.
     const { data: materials, error: materialError } = await supabase
       .from("materials")
-      .select("id, materialName:material_name, materialSize:material_size, materialGSM:material_gsm")
+      .select("id, materialName:material_name, materialSize:material_size, materialGSM:material_gsm, reorderLevel:reorder_level")
       .in("id", materialIds);
     if (materialError) throw materialError;
 
-    const result = (materials || []).map((m) => ({ material: m, balance: balances[m.id] || 0 }));
+    let result = (materials || []).map((m) => {
+      const balance = balances[m.id] || 0;
+      const belowReorderFlag = m.reorderLevel !== null && m.reorderLevel !== undefined && balance < Number(m.reorderLevel);
+      return { material: m, balance, belowReorder: belowReorderFlag };
+    });
+
+    if (belowReorder === "true") {
+      result = result.filter((r) => r.belowReorder);
+    }
 
     res.status(200).json({ success: true, data: withMongoId(result) });
   } catch (error) {
