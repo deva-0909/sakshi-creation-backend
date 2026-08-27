@@ -20,6 +20,7 @@ const ORDER_SELECT = `
   customerPoNumber:customer_po_number, priority, expectedDeliveryDate:expected_delivery_date,
   orderFrom:order_from, orderDate:order_date, dyeNumber:dye_number, dyeSize:dye_size,
   dyeSheetSize:dye_sheet_size, dyeRemark:dye_remark, godownRemark:godown_remark, factoryRemarks:factory_remarks,
+  orderType:order_type,
   createdAt:created_at, updatedAt:updated_at,
   companyName:company_name_id(id, companyName:company_name),
   party:party_id(id, partyName:party_name, address, contactPerson:contact_person, personMobileNo:person_mobile_no, personWhatsAppNo:person_whatsapp_no, GSTNo:gst_no),
@@ -49,7 +50,7 @@ function processFileList(input) {
 
 exports.createOrder = async (req, res) => {
   try {
-    const { companyName, party, productItem, qty, remarks, filePaths, createdBy, isGst, size, rate, rateType, isLamination, laminationType, customerPoNumber, priority, expectedDeliveryDate, ply, deckal, gsm, orderFrom, orderDate, dyeNumber, dyeSize, dyeSheetSize, dyeRemark, godownRemark, factoryRemarks } = req.body;
+    const { companyName, party, productItem, qty, remarks, filePaths, createdBy, isGst, size, rate, rateType, isLamination, laminationType, customerPoNumber, priority, expectedDeliveryDate, ply, deckal, gsm, orderFrom, orderDate, dyeNumber, dyeSize, dyeSheetSize, dyeRemark, godownRemark, factoryRemarks, orderType } = req.body;
 
     if (!companyName || !party || !productItem || !qty) {
       return res.status(400).json({ success: false, message: "Company, Party, Product Item, and Quantity are required" });
@@ -166,6 +167,17 @@ exports.createOrder = async (req, res) => {
         })
         .eq("id", orderId);
     }
+
+    // Figma frame check follow-up (2026-08-27): Order Type defaults to
+    // "New Order" -- the design's own starting state for a freshly placed
+    // order -- when the client doesn't send one. Written unconditionally
+    // (not gated on `orderType !== undefined`, unlike the optional QP
+    // fields above) so every order gets a real starting value rather than
+    // staying null forever for anyone who omits it.
+    await supabase
+      .from("orders")
+      .update({ order_type: orderType || "New Order" })
+      .eq("id", orderId);
 
     const { data: populatedOrder } = await supabase.from("orders").select(ORDER_SELECT).eq("id", orderId).single();
 
@@ -392,6 +404,7 @@ exports.updateOrder = async (req, res) => {
       ...(body.dyeRemark !== undefined && { dye_remark: body.dyeRemark }),
       ...(body.godownRemark !== undefined && { godown_remark: body.godownRemark }),
       ...(body.factoryRemarks !== undefined && { factory_remarks: body.factoryRemarks }),
+      ...(body.orderType !== undefined && { order_type: body.orderType }),
       updated_at: new Date().toISOString(),
       updated_by: req.user?.id || null,
     };

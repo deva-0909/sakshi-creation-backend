@@ -80,6 +80,14 @@ const createOrderSchema = z.object({
   dyeRemark: z.string().trim().optional(),
   godownRemark: z.string().trim().optional(),
   factoryRemarks: z.string().trim().optional(),
+  // Figma frame check follow-up (2026-08-27): the "Order In" screen's
+  // Order Type column (New Order / New Pending Order / Ready) -- confirmed
+  // with the user as a pre-production readiness state, separate from the
+  // existing pipeline status, manually set by staff (like Priority). QP
+  // orders default to "New Order" on creation (see createOrder) since
+  // that's the design's own starting state for a freshly placed order;
+  // Sakshi Creation orders simply never populate or display it.
+  orderType: z.enum(["New Order", "New Pending Order", "Ready"]).optional(),
 });
 
 // Update payloads are partial — any subset of the above fields, still
