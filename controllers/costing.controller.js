@@ -140,6 +140,13 @@ async function computeCosting(jobCard) {
 // computation for the profitability roll-up widget rather than
 // duplicating the material/labor/overhead/revenue logic.
 exports.computeCosting = computeCosting;
+// Box-costing follow-up (2026-08-27, rebuilt as Patch 101): order.controller.js's
+// estimated box cost needs the same "material's latest purchase rate" lookup
+// this file already has -- exported rather than duplicated, so Costing and
+// the order-intake box-cost estimate never silently disagree about where a
+// material's rate comes from (same reasoning as the bom.controller.js
+// comment above latestRate's definition).
+exports.latestRate = latestRate;
 
 exports.getAllCosting = async (req, res) => {
   try {

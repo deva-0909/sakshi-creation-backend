@@ -1,6 +1,8 @@
 const supabase = require("../lib/supabaseClient");
 const { isValidId, withMongoId, deriveInitials } = require("../lib/helpers");
 const { logAudit } = require("../lib/audit");
+const { latestRate } = require("./costing.controller");
+const { computeKantanLengthCm, computeEstimatedBoxCost } = require("../lib/boxCalculations");
 
 const ORDER_SELECT = `
   id, qty, remarks, filePaths:file_paths, status, orderNumber:order_number, number, size,
@@ -27,6 +29,9 @@ const ORDER_SELECT = `
   orderType:order_type,
   deliveryDestination:delivery_destination,
   rawPaperSize:raw_paper_size, rawPaperUsed:raw_paper_used,
+  boxLengthCm:box_length_cm, boxWidthCm:box_width_cm, boxHeightCm:box_height_cm,
+  kantanLengthCm:kantan_length_cm, estimatedBoxCost:estimated_box_cost,
+  paperMaterial:paper_material_id(id, materialName:material_name, materialGSM:material_gsm),
   createdAt:created_at, updatedAt:updated_at,
   companyName:company_name_id(id, companyName:company_name),
   party:party_id(id, partyName:party_name, address, contactPerson:contact_person, personMobileNo:person_mobile_no, personWhatsAppNo:person_whatsapp_no, GSTNo:gst_no),
@@ -56,7 +61,7 @@ function processFileList(input) {
 
 exports.createOrder = async (req, res) => {
   try {
-    const { companyName, party, productItem, qty, remarks, filePaths, createdBy, isGst, size, rate, rateType, isLamination, laminationType, customerPoNumber, priority, expectedDeliveryDate, ply, deckal, gsm, orderFrom, orderDate, dyeNumber, dyeSize, dyeSheetSize, dyeRemark, godownRemark, factoryRemarks, orderType, deliveryDestination, rawPaperSize, rawPaperUsed, bookletBinderBinding, bookletBinderPagesPerBook, bookletBinderSubPaper, bookletBinderUsedPaper, bookletBinderRateBook, bookletBinderTotalAmount, bookletBinderGst } = req.body;
+    const { companyName, party, productItem, qty, remarks, filePaths, createdBy, isGst, size, rate, rateType, isLamination, laminationType, customerPoNumber, priority, expectedDeliveryDate, ply, deckal, gsm, orderFrom, orderDate, dyeNumber, dyeSize, dyeSheetSize, dyeRemark, godownRemark, factoryRemarks, orderType, deliveryDestination, rawPaperSize, rawPaperUsed, bookletBinderBinding, bookletBinderPagesPerBook, bookletBinderSubPaper, bookletBinderUsedPaper, bookletBinderRateBook, bookletBinderTotalAmount, bookletBinderGst, boxLengthCm, boxWidthCm, boxHeightCm, paperMaterial } = req.body;
 
     if (!companyName || !party || !productItem || !qty) {
       return res.status(400).json({ success: false, message: "Company, Party, Product Item, and Quantity are required" });
@@ -75,6 +80,18 @@ exports.createOrder = async (req, res) => {
     }
     if (gsm !== undefined && gsm !== null && (isNaN(gsm) || gsm < 0)) {
       return res.status(400).json({ success: false, message: "GSM must be a non-negative number" });
+    }
+    if (boxLengthCm !== undefined && boxLengthCm !== null && (isNaN(boxLengthCm) || boxLengthCm < 0)) {
+      return res.status(400).json({ success: false, message: "Box Length must be a non-negative number" });
+    }
+    if (boxWidthCm !== undefined && boxWidthCm !== null && (isNaN(boxWidthCm) || boxWidthCm < 0)) {
+      return res.status(400).json({ success: false, message: "Box Width must be a non-negative number" });
+    }
+    if (boxHeightCm !== undefined && boxHeightCm !== null && (isNaN(boxHeightCm) || boxHeightCm < 0)) {
+      return res.status(400).json({ success: false, message: "Box Height must be a non-negative number" });
+    }
+    if (paperMaterial !== undefined && paperMaterial !== null && !isValidId(paperMaterial)) {
+      return res.status(400).json({ success: false, message: "Invalid paperMaterial ID format" });
     }
     if (rateType !== undefined && !["old", "new"].includes(rateType)) {
       return res.status(400).json({ success: false, message: "Rate type must be either 'old' or 'new'" });
@@ -241,6 +258,39 @@ exports.createOrder = async (req, res) => {
       .update({ delivery_destination: deliveryDestination || "SAKSHI OFFICE" })
       .eq("id", orderId);
 
+    // Box-costing follow-up (2026-08-25 audit, rebuilt as Patch 101 after
+    // Patch 89's backend half was found to have never actually landed):
+    // Kantan length and estimated box cost, per the two formulas confirmed
+    // with the user (see lib/boxCalculations.js). Computed and stored
+    // server-side -- never trust a client-supplied kantan/cost value --
+    // from box dimensions, gsm, ply (all order-level fields already
+    // collected above) and the selected paper material's latest purchase
+    // rate. Same "optional fields outside the transactional RPC" pattern
+    // as ply/deckal/gsm.
+    if (boxLengthCm !== undefined || boxWidthCm !== undefined || boxHeightCm !== undefined || paperMaterial !== undefined) {
+      const kantanLengthCm = computeKantanLengthCm({ lengthCm: boxLengthCm, widthCm: boxWidthCm });
+      const materialRate = paperMaterial ? await latestRate(paperMaterial) : null;
+      const estimatedBoxCost = computeEstimatedBoxCost({
+        lengthCm: boxLengthCm,
+        widthCm: boxWidthCm,
+        heightCm: boxHeightCm,
+        gsm,
+        ply,
+        ratePerSheet: materialRate,
+      });
+      await supabase
+        .from("orders")
+        .update({
+          ...(boxLengthCm !== undefined && { box_length_cm: boxLengthCm === null ? null : parseFloat(boxLengthCm) }),
+          ...(boxWidthCm !== undefined && { box_width_cm: boxWidthCm === null ? null : parseFloat(boxWidthCm) }),
+          ...(boxHeightCm !== undefined && { box_height_cm: boxHeightCm === null ? null : parseFloat(boxHeightCm) }),
+          ...(paperMaterial !== undefined && { paper_material_id: paperMaterial || null }),
+          kantan_length_cm: kantanLengthCm,
+          estimated_box_cost: estimatedBoxCost,
+        })
+        .eq("id", orderId);
+    }
+
     const { data: populatedOrder } = await supabase.from("orders").select(ORDER_SELECT).eq("id", orderId).single();
 
     res.status(201).json({ success: true, message: "Order created successfully", data: withMongoId(populatedOrder) });
@@ -252,12 +302,19 @@ exports.createOrder = async (req, res) => {
 
 exports.getAllOrders = async (req, res) => {
   try {
-    const { page = 1, limit = 10, status, companyName, party } = req.query;
+    const { page = 1, limit = 10, status, companyName, party, orderFrom } = req.query;
     let query = supabase.from("orders").select(ORDER_SELECT, { count: "exact" }).eq("is_delete", false).order("created_at", { ascending: false });
 
     if (status) query = query.eq("status", status);
     if (companyName && isValidId(companyName)) query = query.eq("company_name_id", companyName);
     if (party && isValidId(party)) query = query.eq("party_id", party);
+    // Order To Factory (Godown Manager) page (2026-08-27): server-side
+    // equivalent of the client-side ply/deckal filters this same list
+    // already supports -- lets that page ask for just GODOWN-originated
+    // orders directly instead of fetching everything and filtering in the
+    // browser. Optional and additive: omitting it keeps every existing
+    // caller's behavior unchanged.
+    if (orderFrom) query = query.eq("order_from", orderFrom);
     // Multi-role audit fix (Finding 1): authorizeView() attaches this when the
     // caller's role only has view_own (not view_global) for this module.
     if (req.viewOwnFilter) query = query.eq(req.viewOwnFilter.column, req.viewOwnFilter.value);
@@ -348,6 +405,18 @@ exports.updateOrder = async (req, res) => {
     }
     if (body.deckal !== undefined && body.deckal !== null && (isNaN(body.deckal) || body.deckal < 0)) {
       return res.status(400).json({ success: false, message: "Deckal must be a non-negative number" });
+    }
+    if (body.boxLengthCm !== undefined && body.boxLengthCm !== null && (isNaN(body.boxLengthCm) || body.boxLengthCm < 0)) {
+      return res.status(400).json({ success: false, message: "Box Length must be a non-negative number" });
+    }
+    if (body.boxWidthCm !== undefined && body.boxWidthCm !== null && (isNaN(body.boxWidthCm) || body.boxWidthCm < 0)) {
+      return res.status(400).json({ success: false, message: "Box Width must be a non-negative number" });
+    }
+    if (body.boxHeightCm !== undefined && body.boxHeightCm !== null && (isNaN(body.boxHeightCm) || body.boxHeightCm < 0)) {
+      return res.status(400).json({ success: false, message: "Box Height must be a non-negative number" });
+    }
+    if (body.paperMaterial !== undefined && body.paperMaterial !== null && !isValidId(body.paperMaterial)) {
+      return res.status(400).json({ success: false, message: "Invalid paperMaterial ID format" });
     }
     if (body.rateType !== undefined && !["old", "new"].includes(body.rateType)) {
       return res.status(400).json({ success: false, message: "Rate type must be either 'old' or 'new'" });
@@ -477,9 +546,41 @@ exports.updateOrder = async (req, res) => {
       ...(body.deliveryDestination !== undefined && { delivery_destination: body.deliveryDestination }),
       ...(body.rawPaperSize !== undefined && { raw_paper_size: body.rawPaperSize }),
       ...(body.rawPaperUsed !== undefined && { raw_paper_used: body.rawPaperUsed }),
+      ...(body.boxLengthCm !== undefined && { box_length_cm: body.boxLengthCm === null ? null : parseFloat(body.boxLengthCm) }),
+      ...(body.boxWidthCm !== undefined && { box_width_cm: body.boxWidthCm === null ? null : parseFloat(body.boxWidthCm) }),
+      ...(body.boxHeightCm !== undefined && { box_height_cm: body.boxHeightCm === null ? null : parseFloat(body.boxHeightCm) }),
+      ...(body.paperMaterial !== undefined && { paper_material_id: body.paperMaterial || null }),
       updated_at: new Date().toISOString(),
       updated_by: req.user?.id || null,
     };
+
+    // Box-costing follow-up (2026-08-25 audit, rebuilt as Patch 101): Kantan
+    // length / estimated box cost recompute whenever any of their inputs
+    // change -- box dimensions, gsm, ply, or the paper material -- not just
+    // when the box fields themselves are touched, since gsm/ply already had
+    // their own update path before this feature existed. Reads whichever
+    // inputs weren't part of this request straight off the current row, so
+    // e.g. updating just the paper material still recomputes cost using the
+    // box's existing dimensions rather than wiping it out. Same "never trust
+    // a client-supplied kantan/cost value" rule as createOrder.
+    const BOX_COST_INPUT_FIELDS = ["boxLengthCm", "boxWidthCm", "boxHeightCm", "gsm", "ply", "paperMaterial"];
+    if (BOX_COST_INPUT_FIELDS.some((f) => body[f] !== undefined)) {
+      const { data: currentOrder } = await supabase
+        .from("orders")
+        .select("box_length_cm, box_width_cm, box_height_cm, gsm, ply, paper_material_id")
+        .eq("id", id)
+        .maybeSingle();
+      const lengthCm = body.boxLengthCm !== undefined ? body.boxLengthCm : currentOrder?.box_length_cm;
+      const widthCm = body.boxWidthCm !== undefined ? body.boxWidthCm : currentOrder?.box_width_cm;
+      const heightCm = body.boxHeightCm !== undefined ? body.boxHeightCm : currentOrder?.box_height_cm;
+      const gsmValue = body.gsm !== undefined ? body.gsm : currentOrder?.gsm;
+      const plyValue = body.ply !== undefined ? body.ply : currentOrder?.ply;
+      const paperMaterialId = body.paperMaterial !== undefined ? body.paperMaterial : currentOrder?.paper_material_id;
+
+      patch.kantan_length_cm = computeKantanLengthCm({ lengthCm, widthCm });
+      const materialRate = paperMaterialId ? await latestRate(paperMaterialId) : null;
+      patch.estimated_box_cost = computeEstimatedBoxCost({ lengthCm, widthCm, heightCm, gsm: gsmValue, ply: plyValue, ratePerSheet: materialRate });
+    }
 
     const { data: updated, error } = await supabase.from("orders").update(patch).eq("id", id).select(ORDER_SELECT).maybeSingle();
     if (error) throw error;

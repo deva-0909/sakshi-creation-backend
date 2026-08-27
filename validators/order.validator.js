@@ -103,6 +103,18 @@ const createOrderSchema = z.object({
   // here too so createOrder can accept them if ever supplied up front.
   rawPaperSize: z.string().trim().optional(),
   rawPaperUsed: z.string().trim().optional(),
+  // Box-costing follow-up (2026-08-25 audit, rebuilt as Patch 101 after
+  // Patch 89's backend half was found to have never actually landed):
+  // box_length_cm/box_width_cm/box_height_cm feed the Kantan-length and
+  // estimated-box-cost formulas confirmed with the user (see
+  // lib/boxCalculations.js) -- QP-only, optional, same numericField/
+  // empty-string-clears-to-null treatment as ply/deckal/gsm above.
+  // paperMaterial is the material whose rate_per_sheet stands in for
+  // "paper rate" in the cost formula.
+  boxLengthCm: numericField.optional(),
+  boxWidthCm: numericField.optional(),
+  boxHeightCm: numericField.optional(),
+  paperMaterial: z.union([idField, z.null()]).optional(),
 });
 
 // Update payloads are partial — any subset of the above fields, still
