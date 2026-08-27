@@ -140,7 +140,15 @@ exports.getAllJobCards = async (req, res) => {
     // a specific pipeline stage (e.g. "Factory" or "Godown" counts). Filters
     // via the !inner order embed above -- job cards have no company_name_id
     // of their own, only their order does.
-    if (companyName) query = query.eq("orders.company_name_id", companyName);
+    // Bug fix (2026-08-27, seed-data verification pass): the SELECT above
+    // embeds the joined order under the alias "order" (order:order_id!inner
+    // (...)), but this filter referenced "orders.company_name_id" (plural,
+    // matching the table name instead of the embed alias). PostgREST filters
+    // on an embedded resource by its alias, not by the underlying table
+    // name, so this always failed to match and silently returned zero rows
+    // whenever a companyName filter was applied -- exactly the symptom seen
+    // on the Job Card list page with a company tab selected.
+    if (companyName) query = query.eq("order.company_name_id", companyName);
     if (currentStage) query = query.eq("current_stage", currentStage);
     // Multi-role audit fix (Finding 1): authorizeView() attaches this when the
     // caller's role only has view_own (not view_global) for this module.
