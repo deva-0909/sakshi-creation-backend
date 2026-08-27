@@ -18,6 +18,8 @@ const ORDER_SELECT = `
   issuedDate:issued_date, receivedDate:received_date, pagesPerBook:pages_per_book, rateBook:rate_book, totalAmount:total_amount,
   ratePerUnit:rate_per_unit, bindergst, deliveryDate:delivery_date, deliveryTime:delivery_time, isGst:is_gst,
   customerPoNumber:customer_po_number, priority, expectedDeliveryDate:expected_delivery_date,
+  orderFrom:order_from, orderDate:order_date, dyeNumber:dye_number, dyeSize:dye_size,
+  dyeSheetSize:dye_sheet_size, dyeRemark:dye_remark, godownRemark:godown_remark, factoryRemarks:factory_remarks,
   createdAt:created_at, updatedAt:updated_at,
   companyName:company_name_id(id, companyName:company_name),
   party:party_id(id, partyName:party_name, address, contactPerson:contact_person, personMobileNo:person_mobile_no, personWhatsAppNo:person_whatsapp_no, GSTNo:gst_no),
@@ -47,7 +49,7 @@ function processFileList(input) {
 
 exports.createOrder = async (req, res) => {
   try {
-    const { companyName, party, productItem, qty, remarks, filePaths, createdBy, isGst, size, rate, rateType, isLamination, laminationType, customerPoNumber, priority, expectedDeliveryDate, ply, deckal, gsm } = req.body;
+    const { companyName, party, productItem, qty, remarks, filePaths, createdBy, isGst, size, rate, rateType, isLamination, laminationType, customerPoNumber, priority, expectedDeliveryDate, ply, deckal, gsm, orderFrom, orderDate, dyeNumber, dyeSize, dyeSheetSize, dyeRemark, godownRemark, factoryRemarks } = req.body;
 
     if (!companyName || !party || !productItem || !qty) {
       return res.status(400).json({ success: false, message: "Company, Party, Product Item, and Quantity are required" });
@@ -137,6 +139,30 @@ exports.createOrder = async (req, res) => {
           ...(ply !== undefined && { ply: ply === null ? null : parseFloat(ply) }),
           ...(deckal !== undefined && { deckal: deckal === null ? null : parseFloat(deckal) }),
           ...(gsm !== undefined && { gsm: gsm === null ? null : parseFloat(gsm) }),
+        })
+        .eq("id", orderId);
+    }
+
+    // Quality Packaging "New Order" Figma match (2026-08-27): Order From,
+    // order Date, the DYE number/size/sheet size/remark row, and the
+    // Godown/Factory remarks split -- same "optional fields outside the
+    // transactional RPC" pattern as ply/deckal/gsm above, since none of
+    // these are meaningful for Sakshi Creation's own order flow.
+    if (
+      orderFrom !== undefined || orderDate !== undefined || dyeNumber !== undefined || dyeSize !== undefined ||
+      dyeSheetSize !== undefined || dyeRemark !== undefined || godownRemark !== undefined || factoryRemarks !== undefined
+    ) {
+      await supabase
+        .from("orders")
+        .update({
+          ...(orderFrom !== undefined && { order_from: orderFrom || null }),
+          ...(orderDate !== undefined && { order_date: orderDate || null }),
+          ...(dyeNumber !== undefined && { dye_number: dyeNumber || null }),
+          ...(dyeSize !== undefined && { dye_size: dyeSize || null }),
+          ...(dyeSheetSize !== undefined && { dye_sheet_size: dyeSheetSize || null }),
+          ...(dyeRemark !== undefined && { dye_remark: dyeRemark || null }),
+          ...(godownRemark !== undefined && { godown_remark: godownRemark || null }),
+          ...(factoryRemarks !== undefined && { factory_remarks: factoryRemarks || null }),
         })
         .eq("id", orderId);
     }
@@ -358,6 +384,14 @@ exports.updateOrder = async (req, res) => {
       ...(body.customerPoNumber !== undefined && { customer_po_number: body.customerPoNumber }),
       ...(body.priority !== undefined && { priority: body.priority }),
       ...(body.expectedDeliveryDate !== undefined && { expected_delivery_date: body.expectedDeliveryDate }),
+      ...(body.orderFrom !== undefined && { order_from: body.orderFrom }),
+      ...(body.orderDate !== undefined && { order_date: body.orderDate }),
+      ...(body.dyeNumber !== undefined && { dye_number: body.dyeNumber }),
+      ...(body.dyeSize !== undefined && { dye_size: body.dyeSize }),
+      ...(body.dyeSheetSize !== undefined && { dye_sheet_size: body.dyeSheetSize }),
+      ...(body.dyeRemark !== undefined && { dye_remark: body.dyeRemark }),
+      ...(body.godownRemark !== undefined && { godown_remark: body.godownRemark }),
+      ...(body.factoryRemarks !== undefined && { factory_remarks: body.factoryRemarks }),
       updated_at: new Date().toISOString(),
       updated_by: req.user?.id || null,
     };

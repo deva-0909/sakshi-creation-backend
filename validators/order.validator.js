@@ -63,6 +63,23 @@ const createOrderSchema = z.object({
   // never modeled it, so it couldn't be collected on the order-intake form
   // itself -- the only place the Figma design actually shows it.
   gsm: numericField.optional(),
+  // QP "New Order" Figma match (2026-08-27): Order From, a manually
+  // entered order Date, the DYE number/size/sheet size/remark row, and
+  // the Godown/Factory remarks split -- same "shared optional order-level
+  // field" treatment as ply/deckal/gsm above. An empty string on the date
+  // is treated as "no date supplied" (mapped to null), consistent with
+  // expectedDeliveryDate above.
+  orderFrom: z.string().trim().optional(),
+  orderDate: z.preprocess(
+    (v) => (v === "" ? null : v),
+    z.union([z.string(), z.null()]).optional()
+  ),
+  dyeNumber: z.string().trim().optional(),
+  dyeSize: z.string().trim().optional(),
+  dyeSheetSize: z.string().trim().optional(),
+  dyeRemark: z.string().trim().optional(),
+  godownRemark: z.string().trim().optional(),
+  factoryRemarks: z.string().trim().optional(),
 });
 
 // Update payloads are partial — any subset of the above fields, still
