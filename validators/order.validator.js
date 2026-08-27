@@ -88,6 +88,13 @@ const createOrderSchema = z.object({
   // that's the design's own starting state for a freshly placed order;
   // Sakshi Creation orders simply never populate or display it.
   orderType: z.enum(["New Order", "New Pending Order", "Ready"]).optional(),
+  // Binder task-portal Figma restore (2026-08-27): Raw Paper Size / Raw
+  // Paper Used -- free-text like dyeSize/dyeSheetSize above (e.g. "24x36"
+  // for size; a descriptive quantity like "150 sheets" for used), read on
+  // the binder task-portal and set from there via updateOrder, but modeled
+  // here too so createOrder can accept them if ever supplied up front.
+  rawPaperSize: z.string().trim().optional(),
+  rawPaperUsed: z.string().trim().optional(),
 });
 
 // Update payloads are partial — any subset of the above fields, still

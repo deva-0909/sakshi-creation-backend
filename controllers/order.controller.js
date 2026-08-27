@@ -21,6 +21,7 @@ const ORDER_SELECT = `
   orderFrom:order_from, orderDate:order_date, dyeNumber:dye_number, dyeSize:dye_size,
   dyeSheetSize:dye_sheet_size, dyeRemark:dye_remark, godownRemark:godown_remark, factoryRemarks:factory_remarks,
   orderType:order_type,
+  rawPaperSize:raw_paper_size, rawPaperUsed:raw_paper_used,
   createdAt:created_at, updatedAt:updated_at,
   companyName:company_name_id(id, companyName:company_name),
   party:party_id(id, partyName:party_name, address, contactPerson:contact_person, personMobileNo:person_mobile_no, personWhatsAppNo:person_whatsapp_no, GSTNo:gst_no),
@@ -50,7 +51,7 @@ function processFileList(input) {
 
 exports.createOrder = async (req, res) => {
   try {
-    const { companyName, party, productItem, qty, remarks, filePaths, createdBy, isGst, size, rate, rateType, isLamination, laminationType, customerPoNumber, priority, expectedDeliveryDate, ply, deckal, gsm, orderFrom, orderDate, dyeNumber, dyeSize, dyeSheetSize, dyeRemark, godownRemark, factoryRemarks, orderType } = req.body;
+    const { companyName, party, productItem, qty, remarks, filePaths, createdBy, isGst, size, rate, rateType, isLamination, laminationType, customerPoNumber, priority, expectedDeliveryDate, ply, deckal, gsm, orderFrom, orderDate, dyeNumber, dyeSize, dyeSheetSize, dyeRemark, godownRemark, factoryRemarks, orderType, rawPaperSize, rawPaperUsed } = req.body;
 
     if (!companyName || !party || !productItem || !qty) {
       return res.status(400).json({ success: false, message: "Company, Party, Product Item, and Quantity are required" });
@@ -164,6 +165,21 @@ exports.createOrder = async (req, res) => {
           ...(dyeRemark !== undefined && { dye_remark: dyeRemark || null }),
           ...(godownRemark !== undefined && { godown_remark: godownRemark || null }),
           ...(factoryRemarks !== undefined && { factory_remarks: factoryRemarks || null }),
+        })
+        .eq("id", orderId);
+    }
+
+    // Binder task-portal Figma restore (2026-08-27): Raw Paper Size / Raw
+    // Paper Used, shown on the binder task-portal, printer-task, and
+    // binder-detail screens in the design but with no backing column
+    // previously -- same "optional field outside the transactional RPC"
+    // treatment as the QP fields above.
+    if (rawPaperSize !== undefined || rawPaperUsed !== undefined) {
+      await supabase
+        .from("orders")
+        .update({
+          ...(rawPaperSize !== undefined && { raw_paper_size: rawPaperSize || null }),
+          ...(rawPaperUsed !== undefined && { raw_paper_used: rawPaperUsed || null }),
         })
         .eq("id", orderId);
     }
@@ -405,6 +421,8 @@ exports.updateOrder = async (req, res) => {
       ...(body.godownRemark !== undefined && { godown_remark: body.godownRemark }),
       ...(body.factoryRemarks !== undefined && { factory_remarks: body.factoryRemarks }),
       ...(body.orderType !== undefined && { order_type: body.orderType }),
+      ...(body.rawPaperSize !== undefined && { raw_paper_size: body.rawPaperSize }),
+      ...(body.rawPaperUsed !== undefined && { raw_paper_used: body.rawPaperUsed }),
       updated_at: new Date().toISOString(),
       updated_by: req.user?.id || null,
     };
