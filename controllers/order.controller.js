@@ -17,6 +17,10 @@ const ORDER_SELECT = `
   isFoil:is_foil, isPunching:is_punching, validproof, invoiceValidProof:invoice_valid_proof, reworkHistory:rework_history,
   issuedDate:issued_date, receivedDate:received_date, pagesPerBook:pages_per_book, rateBook:rate_book, totalAmount:total_amount,
   ratePerUnit:rate_per_unit, bindergst, deliveryDate:delivery_date, deliveryTime:delivery_time, isGst:is_gst,
+  bookletBinderBinding:booklet_binder_binding, bookletBinderPagesPerBook:booklet_binder_pages_per_book,
+  bookletBinderSubPaper:booklet_binder_sub_paper, bookletBinderUsedPaper:booklet_binder_used_paper,
+  bookletBinderRateBook:booklet_binder_rate_book, bookletBinderTotalAmount:booklet_binder_total_amount,
+  bookletBinderGst:booklet_binder_gst,
   customerPoNumber:customer_po_number, priority, expectedDeliveryDate:expected_delivery_date,
   orderFrom:order_from, orderDate:order_date, dyeNumber:dye_number, dyeSize:dye_size,
   dyeSheetSize:dye_sheet_size, dyeRemark:dye_remark, godownRemark:godown_remark, factoryRemarks:factory_remarks,
@@ -51,7 +55,7 @@ function processFileList(input) {
 
 exports.createOrder = async (req, res) => {
   try {
-    const { companyName, party, productItem, qty, remarks, filePaths, createdBy, isGst, size, rate, rateType, isLamination, laminationType, customerPoNumber, priority, expectedDeliveryDate, ply, deckal, gsm, orderFrom, orderDate, dyeNumber, dyeSize, dyeSheetSize, dyeRemark, godownRemark, factoryRemarks, orderType, rawPaperSize, rawPaperUsed } = req.body;
+    const { companyName, party, productItem, qty, remarks, filePaths, createdBy, isGst, size, rate, rateType, isLamination, laminationType, customerPoNumber, priority, expectedDeliveryDate, ply, deckal, gsm, orderFrom, orderDate, dyeNumber, dyeSize, dyeSheetSize, dyeRemark, godownRemark, factoryRemarks, orderType, rawPaperSize, rawPaperUsed, bookletBinderBinding, bookletBinderPagesPerBook, bookletBinderSubPaper, bookletBinderUsedPaper, bookletBinderRateBook, bookletBinderTotalAmount, bookletBinderGst } = req.body;
 
     if (!companyName || !party || !productItem || !qty) {
       return res.status(400).json({ success: false, message: "Company, Party, Product Item, and Quantity are required" });
@@ -180,6 +184,33 @@ exports.createOrder = async (req, res) => {
         .update({
           ...(rawPaperSize !== undefined && { raw_paper_size: rawPaperSize || null }),
           ...(rawPaperUsed !== undefined && { raw_paper_used: rawPaperUsed || null }),
+        })
+        .eq("id", orderId);
+    }
+
+    // Booklet Binder field-parity fix (Build 2): Binding/Pages-per-Book/Sub
+    // Paper/Used Paper/Rate-per-Book/Total Amount/GST for the Booklet
+    // Binder stage. These deliberately use their own booklet_binder_-
+    // prefixed columns rather than Binder's shared binding/pages_per_book/
+    // sub_paper/used_paper/rate_book/total_amount/bindergst columns, so the
+    // two production stages never silently overwrite each other's data on
+    // the same order row -- same "optional field outside the transactional
+    // RPC" treatment as the fields above.
+    if (
+      bookletBinderBinding !== undefined || bookletBinderPagesPerBook !== undefined || bookletBinderSubPaper !== undefined ||
+      bookletBinderUsedPaper !== undefined || bookletBinderRateBook !== undefined || bookletBinderTotalAmount !== undefined ||
+      bookletBinderGst !== undefined
+    ) {
+      await supabase
+        .from("orders")
+        .update({
+          ...(bookletBinderBinding !== undefined && { booklet_binder_binding: bookletBinderBinding || null }),
+          ...(bookletBinderPagesPerBook !== undefined && { booklet_binder_pages_per_book: bookletBinderPagesPerBook === null || bookletBinderPagesPerBook === "" ? null : parseFloat(bookletBinderPagesPerBook) }),
+          ...(bookletBinderSubPaper !== undefined && { booklet_binder_sub_paper: bookletBinderSubPaper || null }),
+          ...(bookletBinderUsedPaper !== undefined && { booklet_binder_used_paper: bookletBinderUsedPaper || null }),
+          ...(bookletBinderRateBook !== undefined && { booklet_binder_rate_book: bookletBinderRateBook === null || bookletBinderRateBook === "" ? null : parseFloat(bookletBinderRateBook) }),
+          ...(bookletBinderTotalAmount !== undefined && { booklet_binder_total_amount: bookletBinderTotalAmount === null || bookletBinderTotalAmount === "" ? null : parseFloat(bookletBinderTotalAmount) }),
+          ...(bookletBinderGst !== undefined && { booklet_binder_gst: bookletBinderGst === null || bookletBinderGst === "" ? null : parseFloat(bookletBinderGst) }),
         })
         .eq("id", orderId);
     }
@@ -405,6 +436,13 @@ exports.updateOrder = async (req, res) => {
       ...(body.totalAmount !== undefined && { total_amount: body.totalAmount }),
       ...(body.ratePerUnit !== undefined && { rate_per_unit: body.ratePerUnit }),
       ...(body.bindergst !== undefined && { bindergst: body.bindergst }),
+      ...(body.bookletBinderBinding !== undefined && { booklet_binder_binding: body.bookletBinderBinding }),
+      ...(body.bookletBinderPagesPerBook !== undefined && { booklet_binder_pages_per_book: body.bookletBinderPagesPerBook }),
+      ...(body.bookletBinderSubPaper !== undefined && { booklet_binder_sub_paper: body.bookletBinderSubPaper }),
+      ...(body.bookletBinderUsedPaper !== undefined && { booklet_binder_used_paper: body.bookletBinderUsedPaper }),
+      ...(body.bookletBinderRateBook !== undefined && { booklet_binder_rate_book: body.bookletBinderRateBook }),
+      ...(body.bookletBinderTotalAmount !== undefined && { booklet_binder_total_amount: body.bookletBinderTotalAmount }),
+      ...(body.bookletBinderGst !== undefined && { booklet_binder_gst: body.bookletBinderGst }),
       ...(body.deliveryDate !== undefined && { delivery_date: body.deliveryDate }),
       ...(body.deliveryTime !== undefined && { delivery_time: body.deliveryTime }),
       ...(body.deliveryStaff && { delivery_staff_id: body.deliveryStaff }),

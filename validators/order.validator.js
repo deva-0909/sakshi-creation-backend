@@ -124,6 +124,17 @@ const updateOrderSchema = createOrderSchema.partial().extend({
   totalAmount: numericField.optional(),
   ratePerUnit: numericField.optional(),
   bindergst: numericField.optional(),
+  // Booklet Binder field-parity fix (Build 2): own booklet_binder_-
+  // prefixed numeric columns (see order.controller.js's ORDER_SELECT
+  // comment for why these don't reuse Binder's rateBook/totalAmount/
+  // bindergst/pagesPerBook), same numeric-field validation as their
+  // Binder equivalents above. bookletBinderBinding/SubPaper/UsedPaper are
+  // free text, same as their Binder equivalents (binding/subPaper/
+  // usedPaper), and pass through the schema's .passthrough() unmodeled.
+  bookletBinderPagesPerBook: numericField.optional(),
+  bookletBinderRateBook: numericField.optional(),
+  bookletBinderTotalAmount: numericField.optional(),
+  bookletBinderGst: numericField.optional(),
 }).passthrough();
 
 module.exports = { createOrderSchema, updateOrderSchema };
