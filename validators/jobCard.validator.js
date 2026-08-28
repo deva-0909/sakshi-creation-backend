@@ -22,15 +22,25 @@ const DEFECT_CATEGORIES = ["Print Misalignment", "Binding Defect", "Paper Damage
 
 const advanceStageSchema = z
   .object({
-    // Phase 2 Part B (two-company): Factory/Godown added for Quality
-    // Packaging's pipeline (Printer -> Binder -> Booklet Binder -> Factory
-    // -> Godown, no Designer/QC/Delivery -- see two-company-gap-analysis.md).
+    // Patch 112: "Production" added for Quality Packaging's simplified,
+    // single-stage job card (box/carton manufacturing has no real
+    // Printer/Binder/Booklet Binder/Factory/Godown pipeline -- that was a
+    // mistaken copy of Sakshi Creation's book-production model). Factory/
+    // Godown/Printer/Binder/Booklet Binder stay in the enum only so
+    // historical stage-history rows created before this patch still parse.
     // The controller enforces which stages are actually valid for a given
     // job card's company; this enum is just the full superset across both
-    // companies' pipelines.
-    stage: z.enum(["Designer", "Printer", "Binder", "Booklet Binder", "QC", "Delivery", "Factory", "Godown"]),
+    // companies' pipelines, past and present.
+    stage: z.enum(["Designer", "Printer", "Binder", "Booklet Binder", "QC", "Delivery", "Factory", "Godown", "Production"]),
     assignedTo: idField.optional(),
-    status: z.enum(["Pending", "In Progress", "Done"]),
+    // Patch 112: Sakshi Creation's advance-stage call still sends one of the
+    // 3 per-stage statuses (Pending/In Progress/Done). Quality Packaging's
+    // simplified single-panel form instead sends one of job_cards_status_
+    // check's own values (Pending/In Progress/On Hold/Completed -- "Pending"
+    // and "On Hold" read as "Order" and "Hold" in the UI); the controller
+    // interprets this field differently per company rather than the schema
+    // needing to know which company sent it.
+    status: z.enum(["Pending", "In Progress", "Done", "On Hold", "Completed"]),
     remarks: z.string().optional(),
     // Real per-stage quantities (Module 8) -- distinct from each other so
     // "how much actually came out right" is a real number, not implied.

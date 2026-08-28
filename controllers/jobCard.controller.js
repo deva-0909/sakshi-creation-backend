@@ -3,19 +3,36 @@ const { isValidId, withMongoId, deriveInitials, categoryForRole, categoryForStag
 const { logAudit } = require("../lib/audit");
 const { notifyStatusChange } = require("../lib/notify");
 
-// Phase 2 Part B (two-company): Quality Packaging's production pipeline is
-// Printer -> Binder -> Booklet Binder -> Factory -> Godown -- no Designer
-// or QC/Delivery stages, per the Figma reference (claude/two-company-gap-
-// analysis.md's "Confirmed concrete differences" table). Sakshi Creation's
-// pipeline is untouched. Both companies share the same Printer/Binder/
-// Booklet Binder stage machinery (machines, job_card_stages rows); Factory
-// and Godown reuse the exact same started_at/completed_at + Pending -> In
-// Progress -> Done mechanism as an IN/OUT concept, rather than new schema.
+// Patch 112 (correcting an earlier architectural mistake): Quality
+// Packaging is a box/carton manufacturer, not a book/booklet printer --
+// the 5-step Printer -> Binder -> Booklet Binder -> Factory -> Godown
+// pipeline it was previously given was copied from Sakshi Creation's
+// book-production model, and "Binder"/"Booklet Binder" simply don't apply
+// to carton manufacturing (confirmed against a real "Mono Carton Small"
+// job card screenshot showing a single production-tracking panel, not a
+// 5-step stepper). A QP job card is now a single, unstaged record: one
+// fixed internal stage, "Production", carrying the Unit/Start Date/
+// Pasting/Pining/RS For/Kantan/Kantan Deckal/Finish Date checklist fields
+// that previously lived on a stage literally named "Factory". QP still
+// uses job cards -- this only removes the named-stage pipeline, it does
+// not remove job cards from QP. Sakshi Creation's real 6-stage pipeline
+// (a genuine book/booklet production line) is untouched.
 const SAKSHI_CREATION_STAGE_ORDER = ["Designer", "Printer", "Binder", "Booklet Binder", "QC", "Delivery"];
-const QUALITY_PACKAGING_STAGE_ORDER = ["Printer", "Binder", "Booklet Binder", "Factory", "Godown"];
+const QUALITY_PACKAGING_STAGE_ORDER = ["Production"];
 function stageOrderForCompany(companyName) {
   return companyName === "Quality Packaging" ? QUALITY_PACKAGING_STAGE_ORDER : SAKSHI_CREATION_STAGE_ORDER;
 }
+const isQualityPackaging = (companyName) => companyName === "Quality Packaging";
+
+// Patch 112: QP job cards no longer have named production stages to move
+// through, so they don't have SC's Pending/In Progress/On Hold/Completed/
+// Cancelled-via-stage-advancement flow either. They instead move through a
+// small status vocabulary of their own -- reusing job_cards_status_check's
+// existing allowed values rather than inventing new ones ("Pending" reads
+// as "Order" in the UI, "On Hold" reads as "Hold"; "In Progress" and
+// "Completed" already read the same both places). See claude/two-company-
+// gap-analysis.md and the patch 112 backend note for the full rationale.
+// (UI-side label mapping only: "Pending" -> "Order" chip, "On Hold" -> "Hold" chip.)
 
 const SELECT = `
   id, jobCardNumber:job_card_number, qty, priority, dueDate:due_date, status, currentStage:current_stage,
@@ -102,18 +119,21 @@ exports.createJobCard = async (req, res) => {
     });
     if (error) throw error;
 
-    // QP order-process audit (2026-08-25): Quality Packaging orders have no
-    // legacy printer-task/binder-task-style pages driving orders.status --
-    // job_cards/job_card_stages is their ONLY production-tracking system, so
-    // without this, orders.status stays frozen at "Received" forever no
-    // matter how far the job card progresses. Sakshi Creation's orders.status
-    // is left completely alone here -- it's still driven by its own legacy
-    // pages, same as before this fix; this only fires for Quality Packaging,
-    // whose orders.status vocabulary (Printer/Binder/Booklet Binder/Factory/
-    // Godown/Completed) was added by the widened orders_status_check
-    // migration alongside this change.
-    if (order.company?.company_name === "Quality Packaging") {
-      await supabase.from("orders").update({ status: initialStage, updated_at: new Date().toISOString() }).eq("id", orderId);
+    // QP order-process audit (2026-08-25), updated by patch 112: Quality
+    // Packaging orders have no legacy printer-task/binder-task-style pages
+    // driving orders.status -- job_cards/job_card_stages is their ONLY
+    // production-tracking system, so without this, orders.status stays
+    // frozen at "Received" forever no matter how far the job card
+    // progresses. Sakshi Creation's orders.status is left completely alone
+    // here -- it's still driven by its own legacy pages, same as before
+    // this fix. Since QP job cards no longer move through named stages,
+    // this now mirrors the job card's simplified status (Pending/In
+    // Progress/Completed/On Hold, widened onto orders_status_check by the
+    // patch 112 migration) instead of a stage name. A fresh job card
+    // always starts at job_cards.status's own default ("Pending" ->
+    // "Order" in the UI), so mirror that same default here.
+    if (isQualityPackaging(order.company?.company_name)) {
+      await supabase.from("orders").update({ status: "Pending", updated_at: new Date().toISOString() }).eq("id", orderId);
     }
 
     const { data: populated } = await supabase.from("job_cards").select(SELECT).eq("id", jobCardId).single();
@@ -271,9 +291,23 @@ exports.advanceStage = async (req, res) => {
       return res.status(404).json({ success: false, message: "Job card not found" });
     }
 
-    const stageOrder = stageOrderForCompany(jobCard.order?.company?.company_name);
+    const companyName = jobCard.order?.company?.company_name;
+    const isQP = isQualityPackaging(companyName);
+    const stageOrder = stageOrderForCompany(companyName);
     if (!stageOrder.includes(stage)) {
       return res.status(400).json({ success: false, message: `${stage} is not a stage in this job card's production pipeline` });
+    }
+    // Patch 112: QP's `status` here is the job card's own simplified status
+    // vocabulary (job_cards_status_check's values), not a per-stage status --
+    // there's no longer a sequence of stages to be Pending/In Progress/Done
+    // *within*. "Done" (SC's per-stage vocabulary) isn't a valid job card
+    // status, so reject it early rather than letting it fall through to a
+    // DB constraint violation.
+    if (isQP && status === "Done") {
+      return res.status(400).json({ success: false, message: `Quality Packaging job cards use status Pending/In Progress/On Hold/Completed, not "Done"` });
+    }
+    if (!isQP && !["Pending", "In Progress", "Done"].includes(status)) {
+      return res.status(400).json({ success: false, message: `${status} is not a valid stage status` });
     }
 
     if (machine) {
@@ -301,9 +335,19 @@ exports.advanceStage = async (req, res) => {
       .limit(1)
       .maybeSingle();
 
+    // Patch 112: job_card_stages_status_check only ever allows Pending/In
+    // Progress/Done (SC's per-stage vocabulary) -- QP's own status (Pending/
+    // In Progress/On Hold/Completed) is stored on job_cards, not here, and
+    // gets mapped onto this row's narrower status just to keep the row's
+    // own started_at/completed_at bookkeeping sensible. "On Hold" maps to
+    // "In Progress" (production genuinely started, just paused) rather than
+    // back to "Pending" (which reads as not-yet-started).
+    const stageRowStatus = isQP ? { Pending: "Pending", "In Progress": "In Progress", "On Hold": "In Progress", Completed: "Done" }[status] : status;
+    const isNowDone = isQP ? status === "Completed" : status === "Done";
+
     const stageUpdate = {
       assigned_to: assignedTo || null,
-      status,
+      status: stageRowStatus,
       remarks: remarks || null,
       // wasted_sheet is set here as a plain number when no material is
       // named (unchanged legacy behavior); when a material IS named, the
@@ -318,25 +362,23 @@ exports.advanceStage = async (req, res) => {
       qc_result: stage === "QC" ? qcResult || null : null,
       defect_category: stage === "QC" ? defectCategory || null : null,
       defect_reason: stage === "QC" ? defectReason || null : null,
-      // QP box-manufacturing Figma audit (2026-08-25): the Order-In
-      // screen's expandable Factory checklist (UNIT / START DATE /
+      // QP box-manufacturing Figma audit (2026-08-25), generalized by patch
+      // 112: the Order-In screen's production checklist (UNIT / START DATE /
       // PASTEING / PINING / RS FOR / KANTAN / KANTAN DECKAL / DELIVERY
-      // DATE / STATUS). Gated to the Factory stage the same way the
-      // QC-only fields above are gated to QC -- this table already holds
-      // one row per (job_card, stage), so Factory's row is where this
-      // checklist naturally lives. No formula backs Kantan/Kantan Deckal
-      // anywhere in the Figma file either (see claude/qp-box-
-      // manufacturing-kantan-figma-audit.md) -- these are plain manual
-      // fields, same as the design shows.
-      unit_number: stage === "Factory" && unitNumber !== undefined && unitNumber !== null && unitNumber !== "" ? parseInt(unitNumber, 10) : null,
-      pasteing_status: stage === "Factory" ? pasteingStatus || null : null,
-      pining_status: stage === "Factory" ? piningStatus || null : null,
-      rs_for: stage === "Factory" ? rsFor || null : null,
-      kantan: stage === "Factory" ? kantan || null : null,
-      kantan_deckal: stage === "Factory" ? kantanDeckal || null : null,
-      factory_delivery_date: stage === "Factory" ? factoryDeliveryDate || null : null,
+      // DATE / STATUS) used to be gated to a stage literally named
+      // "Factory" the same way the QC-only fields above are gated to QC.
+      // Now that a QP job card has exactly one stage ("Production"), this
+      // checklist applies to every QP advance-stage call rather than a
+      // single named stage -- gated on `isQP`, not on the stage name.
+      unit_number: isQP && unitNumber !== undefined && unitNumber !== null && unitNumber !== "" ? parseInt(unitNumber, 10) : null,
+      pasteing_status: isQP ? pasteingStatus || null : null,
+      pining_status: isQP ? piningStatus || null : null,
+      rs_for: isQP ? rsFor || null : null,
+      kantan: isQP ? kantan || null : null,
+      kantan_deckal: isQP ? kantanDeckal || null : null,
+      factory_delivery_date: isQP ? factoryDeliveryDate || null : null,
       updated_at: new Date().toISOString(),
-      ...(status === "Done" && { completed_at: new Date().toISOString() }),
+      ...(isNowDone && { completed_at: new Date().toISOString() }),
     };
 
     let stageRow;
@@ -381,11 +423,17 @@ exports.advanceStage = async (req, res) => {
       logAudit({ req, action: "create", module: "jobCardWastage", recordId: wastageInventoryId, newValue: { stage: stageRow.id, material: wastageMaterial, quantity: wastedSheet } });
     }
 
-    // The stage marker on job_cards only moves forward when a stage is
-    // actually marked Done, so current_stage always reflects work that's
-    // genuinely finished rather than whatever was last touched.
+    // Patch 112: QP no longer moves current_stage through named stages at
+    // all -- it stays "Production" for the life of the job card, and the
+    // simplified status the caller sent goes straight onto job_cards.status
+    // instead. Sakshi Creation is untouched: the stage marker there still
+    // only moves forward when a stage is actually marked Done, so
+    // current_stage always reflects work that's genuinely finished rather
+    // than whatever was last touched.
     const jobCardUpdate = { updated_at: new Date().toISOString(), updated_by: req.user?.id || null };
-    if (status === "Done") {
+    if (isQP) {
+      jobCardUpdate.status = status;
+    } else if (status === "Done") {
       const nextIndex = stageOrder.indexOf(stage) + 1;
       jobCardUpdate.current_stage = nextIndex < stageOrder.length ? stageOrder[nextIndex] : "Done";
       if (jobCardUpdate.current_stage === "Done") jobCardUpdate.status = "Completed";
@@ -393,16 +441,14 @@ exports.advanceStage = async (req, res) => {
     const { data: updatedJobCard, error: jobCardError } = await supabase.from("job_cards").update(jobCardUpdate).eq("id", id).select(SELECT).single();
     if (jobCardError) throw jobCardError;
 
-    // QP order-process audit (2026-08-25): mirror the job card's own
-    // progress onto its parent order's status, Quality Packaging only (see
-    // the matching comment in createJobCard above -- Sakshi Creation keeps
-    // its existing legacy-page-driven orders.status untouched). Fires only
-    // when the job card actually advanced this call (status === "Done"
-    // above), so an in-progress/rework update to the *current* stage
-    // doesn't move the order backward or send a stale status.
-    if (jobCardUpdate.current_stage && jobCard.order?.company?.company_name === "Quality Packaging") {
-      const orderStatus = jobCardUpdate.current_stage === "Done" ? "Completed" : jobCardUpdate.current_stage;
-      await supabase.from("orders").update({ status: orderStatus, updated_at: new Date().toISOString() }).eq("id", jobCard.order_id);
+    // QP order-process audit (2026-08-25), updated by patch 112: mirror the
+    // job card's own status onto its parent order's status, Quality
+    // Packaging only (see the matching comment in createJobCard above --
+    // Sakshi Creation keeps its existing legacy-page-driven orders.status
+    // untouched). Fires on every QP call now, since every QP call sets a
+    // real status rather than only ones that cross a stage boundary.
+    if (isQP && jobCardUpdate.status) {
+      await supabase.from("orders").update({ status: jobCardUpdate.status, updated_at: new Date().toISOString() }).eq("id", jobCard.order_id);
     }
 
     logAudit({ req, action: "update", module: "jobCard", recordId: id, newValue: { stage, status } });

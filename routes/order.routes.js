@@ -31,7 +31,14 @@ router.post("/create", validate(createOrderSchema), createOrder);
 // order, which is likewise ungated here.
 router.post("/create-form", validate(createOrderFormSchema), createOrderForm);
 
-router.get("/all", authorizeView("all_orders", "created_by"), getAllOrders);
+// Godown Manager role (task-portals-godown-quality-manager-build-log.md):
+// this role's list-view permission lives under its own "order_to_factory"
+// key rather than "all_orders" (granting all_orders would also surface the
+// separate "All Orders" sidebar item, which this role must not have) --
+// authorizeView already supports trying multiple keys in order, so this is
+// additive: any existing role scoped on "all_orders" keeps working exactly
+// as before.
+router.get("/all", authorizeView(["all_orders", "order_to_factory"], "created_by"), getAllOrders);
 router.get("/getbystaffid/:id", getOrdersByStaffId);
 
 router.get("/printer", getPrinterById);

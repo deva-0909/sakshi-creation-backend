@@ -470,7 +470,11 @@ exports.getAllOrders = async (req, res) => {
         .in("order_id", orderIds)
         .eq("is_delete", false);
       for (const jc of jobCardRows || []) {
-        const factoryStage = (jc.stages || []).find((s) => s.stage === "Factory");
+        // Patch 112: QP job cards now carry this checklist on their single
+        // "Production" stage row, not one literally named "Factory" -- see
+        // jobCard.controller.js's stage-simplification comment. Field names
+        // below are unaffected, only which row they're read off of.
+        const factoryStage = (jc.stages || []).find((s) => s.stage === "Production");
         jobCardFactoryByOrderId[jc.orderId] = {
           jobCardId: jc.id,
           currentStage: jc.currentStage,
