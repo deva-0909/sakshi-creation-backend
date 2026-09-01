@@ -1,16 +1,53 @@
 const supabase = require("../lib/supabaseClient");
 const { isValidId } = require("../lib/helpers");
+const { resolveCompanyScope } = require("../lib/companyScope");
 
+// QA-R3 fix: every other module's SELECT aliases the joined company row's
+// `company_name` column as `companyName` (see invoice.controller.js's
+// SELECT: `companyName:company_name_id(id, companyName:company_name)`),
+// which is exactly the shape the frontend list page reads
+// (`invoice.companyName?.companyName`, performance-invoice/index.tsx).
+// This SELECT aliased it as `name` instead, so that read was always
+// undefined and the Company column showed "N/A" for every row.
 const SELECT = `
   id, orderNumber:order_number, quantity, color, size, pType:p_type, GSTNo:gst_no, partyAddress:party_address,
   servicePerformance:service_performance, unitPrice:unit_price, total, applyGST:apply_gst, gstPercentage:gst_percentage,
   finalAmount:final_amount, daysAfterConfirmation:days_after_confirmation, paymentTerms:payment_terms, signature,
   createdAt:created_at, updatedAt:updated_at,
-  companyName:company_name_id(id, name:company_name),
+  companyName:company_name_id(id, companyName:company_name),
   party:party_id(id, partyName:party_name, GSTNo:gst_no, address),
   order:order_id(id, orderNumber:order_number),
   assignedTo:assigned_to(id, firstName:first_name, lastName:last_name)
 `;
+
+// QA-R2 fix: the frontend (AddNewPerformanceInvoiceDialog.tsx and the
+// performance-invoice detail/view page) uniformly treats partyAddress as
+// { unitNo, streetAddress, marketName, landMark, area, pincode }. The real
+// `parties` table's `address` jsonb column uses a completely different
+// shape -- { city, line1, state, pincode } (confirmed live: 3 sample party
+// rows) -- and createPerformanceInvoice/updatePerformanceInvoice fall back
+// to that real party address whenever the caller doesn't pass partyAddress
+// explicitly, storing the wrong shape on performance_invoices.party_address.
+// This maps whichever shape is present into the app's canonical
+// unitNo/streetAddress/marketName/landMark/area/pincode shape so real
+// address data populates instead of rendering blank/"N/A". Fields the old
+// schema simply has no equivalent for (unitNo, marketName, landMark) are
+// left blank rather than fabricated.
+function normalizePartyAddress(addr) {
+  if (!addr || typeof addr !== "object") return addr;
+  const hasNewShapeKey = ["unitNo", "streetAddress", "marketName", "landMark", "area"].some((k) => addr[k] !== undefined);
+  if (hasNewShapeKey) return addr;
+  const hasOldShapeKey = addr.city !== undefined || addr.line1 !== undefined || addr.state !== undefined;
+  if (!hasOldShapeKey) return addr;
+  return {
+    unitNo: "",
+    streetAddress: addr.line1 || "",
+    marketName: "",
+    landMark: addr.state || "",
+    area: addr.city || "",
+    pincode: addr.pincode || "",
+  };
+}
 
 exports.createPerformanceInvoice = async (req, res) => {
   try {
@@ -65,7 +102,7 @@ exports.createPerformanceInvoice = async (req, res) => {
         gst_percentage: gstPercentage || 0,
         final_amount: calculatedFinalAmount,
         gst_no: GSTNo || order.party?.gst_no || "",
-        party_address: partyAddress || order.party?.address || {},
+        party_address: partyAddress || normalizePartyAddress(order.party?.address) || {},
         service_performance: servicePerformance || order.productItem?.item_name || "",
         days_after_confirmation: daysAfterConfirmation || null,
         payment_terms: paymentTerms || "",
@@ -89,7 +126,7 @@ exports.getAllPerformanceInvoices = async (req, res) => {
   try {
     // party_name lives on the joined parties table (party_id), not a local
     // column, so search is scoped to the local order_number column.
-    const { page, limit, search } = req.query;
+    const { page, limit, search, companyName } = req.query;
     const paginate = page !== undefined || limit !== undefined;
 
     let query = supabase
@@ -98,9 +135,31 @@ exports.getAllPerformanceInvoices = async (req, res) => {
       .eq("is_delete", false)
       .order("created_at", { ascending: false });
 
+    // QA-B2 fix: this list had no company filter at all -- Sakshi Creation
+    // and Quality Packaging performance invoices rendered together
+    // regardless of the company toggle. Matches the established
+    // two-company list-filter pattern used by every other list endpoint
+    // (see getAllInvoices in invoice.controller.js): an explicit
+    // `companyName` query param wins; otherwise fall back to the caller's
+    // own company via resolveCompanyScope (Admin sees everything). The
+    // frontend's getAllPerformanceInvoicesThunk doesn't send a companyName
+    // param today, so in practice every non-Admin caller hits the
+    // fallback branch.
+    if (companyName) {
+      query = query.eq("company_name_id", companyName);
+    } else {
+      const scope = await resolveCompanyScope(req);
+      if (scope.scoped) query = query.eq("company_name_id", scope.companyId);
+    }
+
     if (search && String(search).trim()) {
       query = query.ilike("order_number", `%${String(search).trim()}%`);
     }
+
+    // Multi-role audit fix (Finding 1) convention: authorizeView() attaches
+    // this when the caller's role only has view_own (not view_global) for
+    // this module -- see routes/performanceInvoice.route.js.
+    if (req.viewOwnFilter) query = query.eq(req.viewOwnFilter.column, req.viewOwnFilter.value);
 
     let pageNum, limitNum, from;
     if (paginate) {
@@ -155,7 +214,12 @@ exports.getPerformanceInvoiceById = async (req, res) => {
         size: pi.size,
         pType: pi.pType,
         GSTNo: pi.GSTNo,
-        partyAddress: pi.partyAddress,
+        // QA-R2 fix: normalize legacy rows whose party_address snapshot
+        // was stored in the real parties-table shape (see
+        // normalizePartyAddress above) so the detail page's
+        // unitNo/streetAddress/marketName/landMark/area/pincode fields
+        // populate instead of showing blank.
+        partyAddress: normalizePartyAddress(pi.partyAddress),
         servicePerformance: pi.servicePerformance,
         unitPrice: pi.unitPrice || 0,
         total: pi.total || 0,
@@ -235,7 +299,7 @@ exports.updatePerformanceInvoice = async (req, res) => {
         gst_percentage: gstPercentage || 0,
         final_amount: calculatedFinalAmount,
         gst_no: GSTNo || order.party?.gst_no || "",
-        party_address: partyAddress || order.party?.address || {},
+        party_address: partyAddress || normalizePartyAddress(order.party?.address) || {},
         service_performance: servicePerformance,
         days_after_confirmation: daysAfterConfirmation,
         payment_terms: paymentTerms || existing.payment_terms || "",

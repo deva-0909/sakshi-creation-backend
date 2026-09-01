@@ -20,7 +20,8 @@ async function getOrderDeliveryAndInvoiceTotals(orderId) {
     .from("delivery_challans")
     .select("quantity_delivered")
     .eq("order_id", orderId)
-    .eq("is_delete", false);
+    .eq("is_delete", false)
+    .in("status", ["Dispatched", "Delivered"]);
   if (challanErr) throw challanErr;
   const deliveredQty = (challans || []).reduce((sum, c) => sum + (Number(c.quantity_delivered) || 0), 0);
 
@@ -28,7 +29,8 @@ async function getOrderDeliveryAndInvoiceTotals(orderId) {
     .from("invoices")
     .select("id")
     .eq("order_id", orderId)
-    .eq("is_delete", false);
+    .eq("is_delete", false)
+    .neq("status", "Cancelled");
   if (invErr) throw invErr;
   const invoiceIds = (invoices || []).map((i) => i.id);
 

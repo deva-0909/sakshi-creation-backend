@@ -490,9 +490,18 @@ exports.getrol = async (req, res) => {
       return res.status(404).json({ success: false, message: "Role not found" });
     }
 
+    // QA-B1 fix: this endpoint backs plain "assign to X staff" pickers
+    // (RoleStaffSelect.tsx) used by every role across the app, so it must
+    // not leak PII. It used to select via SELECT_NO_PASSWORD, which still
+    // includes email, mobileNo, whatsappNo, address, unmasked aadharNo,
+    // aadharFiles, birthDay, and the joined role's full permissions JSON
+    // to ANY authenticated caller regardless of role. Trimmed to the same
+    // id+name lite shape getStaffLite() above already uses --
+    // RoleStaffSelect/getRoleThunk (staffSlice.ts) only ever read
+    // staff.id/_id, firstName, and lastName off each staffMembers entry.
     const { data: staffMembers, error } = await supabase
       .from("staff")
-      .select(SELECT_NO_PASSWORD)
+      .select("id, firstName:first_name, lastName:last_name")
       .eq("role_id", role.id)
       .eq("is_delete", false);
     if (error) throw error;
