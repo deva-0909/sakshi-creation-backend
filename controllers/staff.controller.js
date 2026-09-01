@@ -159,6 +159,43 @@ exports.getStaff = async (req, res) => {
   }
 };
 
+// Tier 1 security audit fix (2026-09-01), Fix 3: lightweight companion to
+// getStaff() above, for the many picker/dropdown call sites (AssignLeadDialog,
+// opportunity dialog, party dialog, job-card/complaints/stock-movement/PO
+// views, etc.) that only ever needed an id + a display name, never the full
+// roster with role permissions and staff PII that getStaff() returns. Kept
+// on authenticateToken only, same low bar as getStaff() had before this fix
+// -- it's the safe alternative that lets /getall itself be locked down to
+// setup.staff view_global without breaking every non-Admin role's dropdowns.
+//
+// Patch 127 correction: the original version of this endpoint omitted
+// roleName entirely, but several of the dropdown consumers it was built for
+// (AssignLeadDialog, AddNewPartyDialog, assigntaskdailog, opportunitydialog)
+// filter the staff list down to `staff.roleName === "Sales Staff"` client
+// side -- with no roleName in the response that filter always evaluates
+// false, so those pickers would have silently rendered empty for every
+// role. Joins role_id the same way SELECT_NO_PASSWORD above does, but
+// selects only the one field (roleName) actually needed here -- still no
+// permissions payload, so the "nothing sensitive" rationale below holds.
+exports.getStaffLite = async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from("staff")
+      .select("id, firstName:first_name, lastName:last_name, role:role_id(roleName:role_name)")
+      .eq("is_delete", false);
+    if (error) throw error;
+
+    const lite = (data || []).map((row) => ({
+      id: row.id,
+      name: [row.firstName, row.lastName].filter(Boolean).join(" "),
+      roleName: row.role?.roleName ?? null,
+    }));
+    res.status(200).json({ success: true, data: lite });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 exports.getStaffById = async (req, res) => {
   try {
     const { data, error } = await supabase.from("staff").select(SELECT_NO_PASSWORD).eq("id", req.params.id).eq("is_delete", false).maybeSingle();

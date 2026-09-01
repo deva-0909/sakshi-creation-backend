@@ -20,7 +20,19 @@ router.post("/login", StaffController.loginStaff);
 // /updatestatus, /delete and /bulk below already use.
 router.post("/create", authenticateToken, authorizePermission("setup.staff", "create"), validate(createStaffSchema), StaffController.createStaff);
 
-router.get("/getall", authenticateToken, StaffController.getStaff);
+// Tier 1 security audit fix (2026-09-01), Fix 3: this returned the full
+// staff roster -- names, contact details, Aadhar (masked), role +
+// permissions JSON -- to any authenticated staff member, e.g. a
+// client-facing Viewer. Gated on setup.staff view_global, matching the
+// convention loginHistory.routes.js already uses. Dropdown call sites that
+// don't hold setup.staff were moved to /list-lite below instead of being
+// broken by this.
+router.get("/getall", authenticateToken, authorizePermission("setup.staff", "view_global"), StaffController.getStaff);
+
+// Lightweight id+name listing for picker/dropdown use -- see the
+// getStaffLite controller comment. Deliberately NOT permission-gated
+// beyond authenticateToken: no PII beyond name, no permissions payload.
+router.get("/list-lite", authenticateToken, StaffController.getStaffLite);
 
 router.get("/getbyid/:id", authenticateToken, StaffController.getStaffById);
 

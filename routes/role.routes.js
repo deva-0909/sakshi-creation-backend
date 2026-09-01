@@ -14,7 +14,19 @@ const RoleController = require("../controllers/role.controller");
 router.post("/create", authorizePermission("setup.role", "create"), validate(createRoleSchema), RoleController.createRole
 );
 // Get all roles
-router.get("/getall", RoleController.getAllRoles);
+// Tier 1 security audit fix (2026-09-01), Fix 3: this returned the full
+// role roster -- including every role's complete permissions JSON -- to
+// any authenticated staff member, e.g. a client-facing Viewer. Gated on
+// setup.role view_global, same convention loginHistory.routes.js already
+// uses for setup.staff. Dropdown call sites that don't hold setup.role
+// were moved to /list-lite below instead of being broken by this.
+router.get("/getall", authorizePermission("setup.role", "view_global"), RoleController.getAllRoles);
+
+// Lightweight id+roleName listing for picker/dropdown use -- see the
+// getAllRolesLite controller comment. Deliberately NOT permission-gated
+// beyond authenticateToken: it carries no permissions payload, so there's
+// nothing sensitive to protect here.
+router.get("/list-lite", RoleController.getAllRolesLite);
 
 // Get role by ID
 router.get("/getbyid/:id", RoleController.getRoleById);

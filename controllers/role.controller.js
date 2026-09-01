@@ -61,6 +61,30 @@ exports.getAllRoles = async (req, res) => {
   }
 };
 
+// Tier 1 security audit fix (2026-09-01), Fix 3: lightweight companion to
+// getAllRoles() above, for picker/dropdown call sites that only ever needed
+// an id + role name, never the full role objects (which include the
+// complete permissions JSON -- exactly what this audit finding flagged as
+// over-exposed). Kept on authenticateToken only, same low bar as getAllRoles()
+// had before this fix -- the safe alternative that lets /getall itself be
+// locked down to setup.role view_global without breaking every non-Admin
+// role's dropdowns.
+exports.getAllRolesLite = async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from("roles")
+      .select("id, roleName:role_name")
+      .eq("is_delete", false);
+
+    if (error) throw error;
+
+    res.status(200).json({ success: true, message: "Roles retrieved successfully", data: data || [] });
+  } catch (error) {
+    console.error("Error fetching roles:", error);
+    res.status(400).json({ success: false, message: error.message || "Error fetching roles" });
+  }
+};
+
 exports.getRoleById = async (req, res) => {
   try {
     const { data, error } = await supabase
