@@ -11,6 +11,9 @@ router.use(authenticateToken);
 
 router.post("/", authorizePermission("invoice", "create"), validate(createInvoiceSchema), InvoiceController.createInvoice);
 router.get("/", authorizeView("invoice", "created_by"), InvoiceController.getAllInvoices);
+// Patch 131 (invoice/delivery linkage): must come before "/:id" so
+// "remaining-quantity" isn't captured as an invoice id.
+router.get("/remaining-quantity/:orderId", InvoiceController.getRemainingQuantityForOrder);
 router.get("/:id", InvoiceController.getInvoiceById);
 router.get("/:id/history", InvoiceController.getInvoiceHistory);
 router.get("/:id/pdf", InvoiceController.getInvoicePdf);

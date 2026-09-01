@@ -1,9 +1,46 @@
 const supabase = require("../lib/supabaseClient");
-const { isValidId, withMongoId, deriveInitials } = require("../lib/helpers");
+const { isValidId, withMongoId, deriveInitials, evaluateInvoiceQuantityAgainstDelivery } = require("../lib/helpers");
 const { resolveCompanyScope } = require("../lib/companyScope");
 const { logAudit } = require("../lib/audit");
 const { notifyStatusChange } = require("../lib/notify");
 const { buildInvoicePdf, streamPdf } = require("../lib/pdf");
+
+// Patch 131 (invoice/delivery linkage): sums how much of `orderId` has
+// actually been delivered (delivery_challans.quantity_delivered, per-challan
+// against the order -- an order can have several partial-delivery challans)
+// versus how much of it has already been invoiced (invoice_items.quantity
+// across this order's other non-deleted invoices). Order-total granularity
+// only -- orders have a single flat `qty`, no order line items, and
+// invoice_items has no FK back to an order line, so a precise per-line
+// reconciliation isn't derivable from the real schema. Shared by the
+// createInvoice guard and the GET /invoices/remaining-quantity/:orderId
+// endpoint so both agree on the same numbers.
+async function getOrderDeliveryAndInvoiceTotals(orderId) {
+  const { data: challans, error: challanErr } = await supabase
+    .from("delivery_challans")
+    .select("quantity_delivered")
+    .eq("order_id", orderId)
+    .eq("is_delete", false);
+  if (challanErr) throw challanErr;
+  const deliveredQty = (challans || []).reduce((sum, c) => sum + (Number(c.quantity_delivered) || 0), 0);
+
+  const { data: invoices, error: invErr } = await supabase
+    .from("invoices")
+    .select("id")
+    .eq("order_id", orderId)
+    .eq("is_delete", false);
+  if (invErr) throw invErr;
+  const invoiceIds = (invoices || []).map((i) => i.id);
+
+  let invoicedQty = 0;
+  if (invoiceIds.length) {
+    const { data: items, error: itemsErr } = await supabase.from("invoice_items").select("quantity, invoice_id").in("invoice_id", invoiceIds);
+    if (itemsErr) throw itemsErr;
+    invoicedQty = (items || []).reduce((sum, it) => sum + (Number(it.quantity) || 0), 0);
+  }
+
+  return { deliveredQty, invoicedQty };
+}
 
 const SELECT = `
   id, invoiceNumber:invoice_number, invoiceDate:invoice_date, dueDate:due_date, gstType:gst_type,
@@ -146,6 +183,26 @@ exports.createInvoice = async (req, res) => {
         success: false,
         message: "Set a state on both the company and the party before raising an invoice (needed to determine CGST/SGST vs IGST)",
       });
+    }
+
+    // Patch 131 (invoice/delivery linkage): only guarded when this invoice
+    // is linked to an order -- freeform/quotation-only invoices skip this
+    // entirely, as do proforma/advance invoices, which go through the
+    // wholly separate performance-invoice controller and table, not this
+    // one. Rejects (400) before the RPC/DB write if the requested line-item
+    // total would push the order's invoiced-quantity total past what's
+    // actually been delivered for it.
+    if (orderId) {
+      const requestedQty = (items || []).reduce((sum, i) => sum + (Number(i.quantity) || 0), 0);
+      const { deliveredQty, invoicedQty } = await getOrderDeliveryAndInvoiceTotals(orderId);
+      const guard = evaluateInvoiceQuantityAgainstDelivery({
+        deliveredQty,
+        alreadyInvoicedQty: invoicedQty,
+        requestedQty,
+      });
+      if (!guard.ok) {
+        return res.status(400).json({ success: false, message: guard.message });
+      }
     }
 
     const initials = deriveInitials(company.company_name);
@@ -317,5 +374,36 @@ exports.getInvoiceHistory = async (req, res) => {
     res.status(200).json({ success: true, data: withMongoId(data) });
   } catch (error) {
     res.status(500).json({ success: false, message: "Error fetching invoice history: " + error.message });
+  }
+};
+
+// Patch 131 (invoice/delivery linkage): lightweight lookup the invoice
+// dialog calls when an order is selected, so the user sees how much of the
+// order is still un-invoiced *before* submitting -- the createInvoice guard
+// above is what actually enforces it, this is just a preview for the UI.
+exports.getRemainingQuantityForOrder = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    if (!isValidId(orderId)) {
+      return res.status(400).json({ success: false, message: "Invalid order ID" });
+    }
+    const { data: order } = await supabase.from("orders").select("id, qty, order_number").eq("id", orderId).maybeSingle();
+    if (!order) {
+      return res.status(404).json({ success: false, message: "Order not found" });
+    }
+    const { deliveredQty, invoicedQty } = await getOrderDeliveryAndInvoiceTotals(orderId);
+    const remainingQty = deliveredQty - invoicedQty;
+    res.status(200).json({
+      success: true,
+      data: {
+        orderId,
+        orderQty: order.qty,
+        deliveredQty,
+        invoicedQty,
+        remainingQty,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: "Error fetching remaining invoiceable quantity: " + error.message });
   }
 };

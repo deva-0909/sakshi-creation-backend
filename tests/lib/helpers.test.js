@@ -1,4 +1,4 @@
-const { isValidId, withMongoId, maskAadhar } = require("../../lib/helpers");
+const { isValidId, withMongoId, maskAadhar, evaluateInvoiceQuantityAgainstDelivery } = require("../../lib/helpers");
 
 describe("isValidId", () => {
   it("accepts a well-formed UUID", () => {
@@ -76,5 +76,39 @@ describe("maskAadhar", () => {
     expect(maskAadhar(null)).toBeNull();
     expect(maskAadhar(undefined)).toBeUndefined();
     expect(maskAadhar("")).toBe("");
+  });
+});
+
+describe("evaluateInvoiceQuantityAgainstDelivery", () => {
+  it("allows an invoice that fits within the un-invoiced delivered quantity", () => {
+    const result = evaluateInvoiceQuantityAgainstDelivery({ deliveredQty: 1000, alreadyInvoicedQty: 400, requestedQty: 600 });
+    expect(result.ok).toBe(true);
+    expect(result.remaining).toBe(600);
+  });
+
+  it("rejects an invoice that would push the invoiced total past what's delivered", () => {
+    const result = evaluateInvoiceQuantityAgainstDelivery({ deliveredQty: 1000, alreadyInvoicedQty: 400, requestedQty: 601 });
+    expect(result.ok).toBe(false);
+    expect(result.remaining).toBe(600);
+    expect(result.message).toMatch(/601/);
+    expect(result.message).toMatch(/600/);
+  });
+
+  it("rejects any positive quantity when nothing has been delivered yet", () => {
+    const result = evaluateInvoiceQuantityAgainstDelivery({ deliveredQty: 0, alreadyInvoicedQty: 0, requestedQty: 1 });
+    expect(result.ok).toBe(false);
+    expect(result.remaining).toBe(0);
+  });
+
+  it("allows an exact match of the full remaining quantity (boundary)", () => {
+    const result = evaluateInvoiceQuantityAgainstDelivery({ deliveredQty: 500, alreadyInvoicedQty: 500, requestedQty: 0 });
+    expect(result.ok).toBe(true);
+    expect(result.remaining).toBe(0);
+  });
+
+  it("treats missing/non-numeric inputs as zero rather than throwing", () => {
+    const result = evaluateInvoiceQuantityAgainstDelivery({ deliveredQty: undefined, alreadyInvoicedQty: null, requestedQty: "abc" });
+    expect(result.ok).toBe(true);
+    expect(result.remaining).toBe(0);
   });
 });

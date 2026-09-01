@@ -10,7 +10,7 @@ const router = express.Router();
 router.use(authenticateToken);
 
 // Create a new company name
-router.post("/create", validate(createCompanyNameSchema), CompanyNameController.createCompanyName);
+router.post("/create", authorizePermission("setup.company-name", "create"), validate(createCompanyNameSchema), CompanyNameController.createCompanyName);
 
 // Get all company names
 router.get("/getall", CompanyNameController.getCompanyNames);
@@ -24,7 +24,7 @@ router.get("/get-party-with-company-id/:id", CompanyNameController.getPartywithC
 
 
 // Update a company name by ID
-router.patch("/update/:id", validate(updateCompanyNameSchema), CompanyNameController.updateCompanyName);
+router.patch("/update/:id", authorizePermission("setup.company-name", "edit"), validate(updateCompanyNameSchema), CompanyNameController.updateCompanyName);
 
 // Delete a company name by ID
 router.delete("/delete/:id", authorizePermission("setup.company-name", "delete"), CompanyNameController.deleteCompanyName);
