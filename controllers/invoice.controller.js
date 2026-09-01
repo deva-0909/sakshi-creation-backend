@@ -1,5 +1,6 @@
 const supabase = require("../lib/supabaseClient");
 const { isValidId, withMongoId, deriveInitials } = require("../lib/helpers");
+const { resolveCompanyScope } = require("../lib/companyScope");
 const { logAudit } = require("../lib/audit");
 const { notifyStatusChange } = require("../lib/notify");
 const { buildInvoicePdf, streamPdf } = require("../lib/pdf");
@@ -191,7 +192,15 @@ exports.getAllInvoices = async (req, res) => {
     // list-filter pattern (companyName query param -> company_name_id
     // .eq()) was applied to every other module but never came back to this
     // one -- there was no way to list "just Quality Packaging's invoices".
-    if (companyName) query = query.eq("company_name_id", companyName);
+    if (companyName) {
+      query = query.eq("company_name_id", companyName);
+    } else {
+      // Tier 1 security audit fix (2026-09-01), Fix 1: fall back to the
+      // caller's own company when none was requested -- see
+      // lib/companyScope.js.
+      const scope = await resolveCompanyScope(req);
+      if (scope.scoped) query = query.eq("company_name_id", scope.companyId);
+    }
     if (search && String(search).trim()) query = query.ilike("invoice_number", `%${String(search).trim()}%`);
     // Multi-role audit fix (Finding 1): authorizeView() attaches this when the
     // caller's role only has view_own (not view_global) for this module.

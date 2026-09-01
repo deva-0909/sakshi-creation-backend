@@ -22,14 +22,21 @@ const { createOrderSchema, updateOrderSchema, createOrderFormSchema } = require(
 
 router.use(authenticateToken);
 
-router.post("/create", validate(createOrderSchema), createOrder);
+// Tier 1 security audit fix (2026-09-01), Fix 2: /create and /create-form
+// had authenticateToken only -- any logged-in staff member could create
+// orders regardless of role permission. Both all_orders and
+// order_to_factory are accepted, same two keys /all below already trusts
+// for viewing this module -- Sales/Admin-type roles create under
+// "all_orders", the Godown Manager role creates under its own
+// "order_to_factory" key (task-portals-godown-quality-manager-build-log.md)
+// via this same shared createOrderThunk/allorderdailog form on the frontend.
+router.post("/create", authorizePermission(["all_orders", "order_to_factory"], "create"), validate(createOrderSchema), createOrder);
 
 // Order Form batch create (Godown Manager Figma audit, Patch 107): groups
 // N order rows entered together via the multi-row inline form into one
-// order_forms row. No extra permission gate beyond authenticateToken above,
-// matching /create -- a batched way of doing the same action as a single
-// order, which is likewise ungated here.
-router.post("/create-form", validate(createOrderFormSchema), createOrderForm);
+// order_forms row -- a batched way of doing the same action as a single
+// order, so gated the same as /create above.
+router.post("/create-form", authorizePermission(["all_orders", "order_to_factory"], "create"), validate(createOrderFormSchema), createOrderForm);
 
 // Godown Manager role (task-portals-godown-quality-manager-build-log.md):
 // this role's list-view permission lives under its own "order_to_factory"
@@ -53,7 +60,8 @@ router.get("/designe", getDesignerById);
 
 router.get("/:id", getOrderById);
 
-router.put("/update/:id", validate(updateOrderSchema), updateOrder);
+// Tier 1 security audit fix (2026-09-01), Fix 2: same gap as /create above.
+router.put("/update/:id", authorizePermission(["all_orders", "order_to_factory"], "edit"), validate(updateOrderSchema), updateOrder);
 
 router.delete("/delete/:id", authorizePermission("all_orders", "delete"), deleteOrder);
 

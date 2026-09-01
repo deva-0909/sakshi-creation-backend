@@ -10,8 +10,11 @@ const router = express.Router();
 
 router.use(authenticateToken);
 
+// Tier 1 security audit fix (2026-09-01), Fix 2: /create and /update/:id
+// had authenticateToken only -- gated to match the "account_master" key
+// already used by /updatestatus, /delete and /bulk-create just below.
 // Create a new account master
-router.post("/create", validate(createAccountMasterSchema), AccountMasterController.createAccountMaster);
+router.post("/create", authorizePermission("account_master", "create"), validate(createAccountMasterSchema), AccountMasterController.createAccountMaster);
 
 // Get all account masters
 router.get("/getall", authorizeView("account_master", "created_by"), AccountMasterController.getAllAccountMasters);
@@ -24,7 +27,7 @@ router.get("/getbyid/:id/360", AccountMasterController.getPartyThreeSixty);
 router.get("/getbystaffid/:id", AccountMasterController.getAccountMasterByStaffId);
 
 // Update an account master by ID
-router.patch("/update/:id", validate(updateAccountMasterSchema), AccountMasterController.updateAccountMaster);
+router.patch("/update/:id", authorizePermission("account_master", "edit"), validate(updateAccountMasterSchema), AccountMasterController.updateAccountMaster);
 
 // Update account master status
 router.patch("/updatestatus/:id", authorizePermission("account_master", "edit"), AccountMasterController.updateAccountMasterStatus);

@@ -1,5 +1,6 @@
 const supabase = require("../lib/supabaseClient");
 const { isValidId, withMongoId } = require("../lib/helpers");
+const { resolveCompanyScope } = require("../lib/companyScope");
 const { logImport } = require("../lib/importLog");
 const XLSX = require("xlsx");
 
@@ -206,6 +207,12 @@ exports.getAllAccountMasters = async (req, res) => {
     // (all-companies) behavior this endpoint already had.
     if (companyName && isValidId(companyName)) {
       query = query.eq("company_name_id", companyName);
+    } else {
+      // Tier 1 security audit fix (2026-09-01), Fix 1: fall back to the
+      // caller's own company when none was requested -- see
+      // lib/companyScope.js.
+      const scope = await resolveCompanyScope(req);
+      if (scope.scoped) query = query.eq("company_name_id", scope.companyId);
     }
     // Multi-role audit fix (Finding 1): authorizeView() attaches this when the
     // caller's role only has view_own (not view_global) for this module.

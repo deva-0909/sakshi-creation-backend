@@ -1,5 +1,6 @@
 const supabase = require("../lib/supabaseClient");
 const { withMongoId } = require("../lib/helpers");
+const { resolveCompanyScope } = require("../lib/companyScope");
 
 // Sakshi Creation order-process audit (2026-08-25): added "designer"/"qc"/
 // "delivery" alongside the matching categoryForStage/categoryForRole fix in
@@ -45,7 +46,15 @@ exports.getInventoryByCategory = async (req, res) => {
       .eq("category", category)
       .eq("is_delete", false)
       .order("date", { ascending: false });
-    if (companyName) query = query.eq("company_name_id", companyName);
+    if (companyName) {
+      query = query.eq("company_name_id", companyName);
+    } else {
+      // Tier 1 security audit fix (2026-09-01), Fix 1: fall back to the
+      // caller's own company when none was requested -- see
+      // lib/companyScope.js.
+      const scope = await resolveCompanyScope(req);
+      if (scope.scoped) query = query.eq("company_name_id", scope.companyId);
+    }
     const { data, error } = await query;
 
     if (error) throw error;
@@ -66,6 +75,16 @@ exports.getInventorySummary = async (req, res) => {
       return res.status(400).json({ success: false, message: "Invalid category" });
     }
 
+    // Tier 1 security audit fix (2026-09-01), Fix 1: fall back to the
+    // caller's own company when none was requested -- see
+    // lib/companyScope.js. Resolved once and applied to both the inward
+    // and outward queries below.
+    let fallbackCompanyId;
+    if (!companyName) {
+      const scope = await resolveCompanyScope(req);
+      if (scope.scoped) fallbackCompanyId = scope.companyId;
+    }
+
     let inwardQuery = supabase
       .from("inventories")
       .select("quantity")
@@ -73,6 +92,7 @@ exports.getInventorySummary = async (req, res) => {
       .eq("type", "inward")
       .eq("is_delete", false);
     if (companyName) inwardQuery = inwardQuery.eq("company_name_id", companyName);
+    else if (fallbackCompanyId !== undefined) inwardQuery = inwardQuery.eq("company_name_id", fallbackCompanyId);
     const { data: inward, error: inErr } = await inwardQuery;
     if (inErr) throw inErr;
 
@@ -83,6 +103,7 @@ exports.getInventorySummary = async (req, res) => {
       .eq("type", "outward")
       .eq("is_delete", false);
     if (companyName) outwardQuery = outwardQuery.eq("company_name_id", companyName);
+    else if (fallbackCompanyId !== undefined) outwardQuery = outwardQuery.eq("company_name_id", fallbackCompanyId);
     const { data: outward, error: outErr } = await outwardQuery;
     if (outErr) throw outErr;
 

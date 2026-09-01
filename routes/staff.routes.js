@@ -15,13 +15,16 @@ const upload = multer({
 router.post("/login", StaffController.loginStaff);
 
 // Everything else requires a valid session.
-router.post("/create", authenticateToken, validate(createStaffSchema), StaffController.createStaff);
+// Tier 1 security audit fix (2026-09-01), Fix 2: /create and /update/:id
+// had authenticateToken only -- gated to match the "setup.staff" key
+// /updatestatus, /delete and /bulk below already use.
+router.post("/create", authenticateToken, authorizePermission("setup.staff", "create"), validate(createStaffSchema), StaffController.createStaff);
 
 router.get("/getall", authenticateToken, StaffController.getStaff);
 
 router.get("/getbyid/:id", authenticateToken, StaffController.getStaffById);
 
-router.patch("/update/:id", authenticateToken, validate(updateStaffSchema), StaffController.updateStaff);
+router.patch("/update/:id", authenticateToken, authorizePermission("setup.staff", "edit"), validate(updateStaffSchema), StaffController.updateStaff);
 
 router.patch("/updatestatus/:id", authenticateToken, authorizePermission("setup.staff", "edit"), StaffController.updateStaffStatus);
 

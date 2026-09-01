@@ -1,5 +1,6 @@
 const supabase = require("../lib/supabaseClient");
 const { isValidId, withMongoId, deriveInitials } = require("../lib/helpers");
+const { resolveCompanyScope } = require("../lib/companyScope");
 const { logAudit } = require("../lib/audit");
 const { latestRate } = require("./costing.controller");
 const { computeKantanLengthCm, computeEstimatedBoxCost } = require("../lib/boxCalculations");
@@ -422,7 +423,16 @@ exports.getAllOrders = async (req, res) => {
     let query = supabase.from("orders").select(ORDER_SELECT, { count: "exact" }).eq("is_delete", false).order("created_at", { ascending: false });
 
     if (status) query = query.eq("status", status);
-    if (companyName && isValidId(companyName)) query = query.eq("company_name_id", companyName);
+    if (companyName && isValidId(companyName)) {
+      query = query.eq("company_name_id", companyName);
+    } else {
+      // Tier 1 security audit fix (2026-09-01), Fix 1: no explicit
+      // companyName -- fall back to the caller's own company for a
+      // single-company-scoped role instead of returning every company's
+      // orders. See lib/companyScope.js for the full rationale.
+      const scope = await resolveCompanyScope(req);
+      if (scope.scoped) query = query.eq("company_name_id", scope.companyId);
+    }
     if (party && isValidId(party)) query = query.eq("party_id", party);
     // Order To Factory (Godown Manager) page (2026-08-27): server-side
     // equivalent of the client-side ply/deckal filters this same list
